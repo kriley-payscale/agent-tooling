@@ -1,0 +1,60 @@
+---
+description: "Use when adding or changing validation, exceptions, result-type returns or HTTP error mapping in .NET services and API controllers."
+alwaysApply: false
+---
+
+# .NET Error Handling
+
+## Exception types
+
+Throw from services and let the exception propagate. Do not catch it inside the service. Use the types the codebase's mapping already handles (Mapping to HTTP), and the BCL types where it has none of its own:
+
+| Situation | Throw |
+|---|---|
+| Null object parameter | `ArgumentNullException.ThrowIfNull(param)` |
+| Invalid value | `ArgumentException` / `ArgumentOutOfRangeException` |
+| Required entity not found | `KeyNotFoundException`, or the codebase's not-found exception |
+| Conflict with current state | the codebase's conflict exception (search for `class \w*Conflict\w*Exception`) |
+| Caller not permitted | `UnauthorizedAccessException`, or the codebase's forbidden exception |
+
+```csharp
+public async Task<Widget> CreateWidgetAsync(CreateWidgetRequest request)
+{
+    ArgumentNullException.ThrowIfNull(request);
+
+    if (string.IsNullOrWhiteSpace(request.Name))
+        throw new ArgumentException("Name is required.", nameof(request));
+
+    // ...
+}
+
+public async Task<WidgetDto> GetWidgetAsync(int widgetId, int tenantId)
+{
+    return await _widgetQueries.FindAsync(widgetId, tenantId)
+        ?? throw new KeyNotFoundException($"Widget {widgetId} not found.");
+}
+```
+
+## Domain exceptions
+
+Add a feature-specific exception only when the client needs a distinct status or payload that the shared types cannot express. Define it beside the codebase's other exceptions and derive it the way they are derived.
+
+A mapper that does not know a domain exception lets it through, and it becomes a 500. Map it where the codebase maps exceptions, or at the controller boundary with an action-level catch. Do not catch it inside services.
+
+## Mapping to HTTP
+
+An exception no mechanism maps becomes a 500, never a 4xx. Before relying on a status, find the mechanism the action actually goes through. Codebases often combine several, and some differ per controller:
+
+1. **Global:** `UseExceptionHandler` with an `IExceptionHandler` or custom middleware, `AddProblemDetails`, or an MVC exception filter. Search the host's startup for `UseExceptionHandler`, `AddExceptionHandler` and `AddProblemDetails`, and the codebase for `IExceptionHandler`, `IExceptionFilter` and `ExceptionFilterAttribute`.
+2. **Result helper:** a service-call wrapper that converts exceptions into a result type, and a controller helper that turns the result's error into a response. Read both mapping switches. The wrapper may rethrow exception types it does not know, and the response helper may fall back to 400 for an error code it does not know, so a 424 can reach the client as a 400.
+3. **Base-class or per-action catch:** it covers only the controllers that use it, and only the exception types it lists; the rest are 500.
+4. **Fallback:** an unmapped exception under `UseExceptionHandler` is a 500 with whatever body the handler writes; in Development, the developer exception page, also 500.
+
+A helper that maps an error to `Forbid()` or a bare `Problem()` drops the error's body. `Forbid()` hands the response to the authentication scheme's forbid handler, which writes no error body.
+
+## Result types
+
+If the codebase has a result type (search for `class Result<` and `record Result<`), return it only when the service returns a typed error payload the client acts on, such as a validation message the UI displays. Do not use it as a general alternative to exceptions, and do not add a result type or library when the codebase has none.
+
+- Read its factory methods and implicit conversions before using it, including what it does with a `null` success value: some types turn it into a not-found error.
+- In the controller, pass the result to the codebase's result helper; do not inspect `IsSuccess` manually. Mapping to HTTP covers how each error becomes a response.

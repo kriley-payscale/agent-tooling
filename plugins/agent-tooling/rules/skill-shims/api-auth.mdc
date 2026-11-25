@@ -1,0 +1,6 @@
+---
+description: "Use when calling an authenticated endpoint of the locally running API: logging in from the credentials file, keeping a cookie or bearer-token session per actor, sending JSON or multipart requests, or preparing API credentials during planning for authenticated local verification."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/api-auth/SKILL.md` for the full step-by-step procedure.

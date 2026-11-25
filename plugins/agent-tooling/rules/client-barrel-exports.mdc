@@ -1,0 +1,53 @@
+---
+description: "Use when creating or editing index.ts barrels in an Angular workspace, adding, moving or renaming an exported file or component folder, or deciding where a feature-local service, helper or pipe file goes."
+alwaysApply: false
+---
+
+# Barrel Export Conventions
+
+Follow the barrel convention the collection and its sibling features already use. The defaults below apply where there is none to follow: a new feature, or an empty or mixed collection.
+
+## General collection barrels
+
+Every non-component collection with more than one exportable unit (service, model, effect, guard, pipe, etc.) has a complete `index.ts`:
+
+```typescript
+// <feature>/effects/index.ts
+export * from './widget-list.effects';
+export * from './widget-detail.effects';
+```
+
+When adding a file to a collection that already has an `index.ts`, add its export in the same change.
+
+When a feature-local service, helper or pipe becomes its own file, place it in the feature's top-level `services/`, `helpers/` or `pipes/` collection, not inside a component folder, unless the feature already keeps them elsewhere. API services follow rule `client-data-api-service`.
+
+## Angular component barrels
+
+Component bundles are the exception to the general collection rule. When the collection's sibling component folders already have their own `index.ts`, add one for a new folder and export it from the collection barrel the way the siblings are exported. Otherwise, including a new feature module and a collection that is mixed or empty:
+
+- Do not create `index.ts` inside an individual component folder.
+- Do not create intermediate `index.ts` files in grouping-only folders under `components/`.
+- Export every component implementation directly from the feature-level `components/index.ts`, using its full relative path.
+- Create the feature-level `components/index.ts` if the feature does not have one.
+
+```typescript
+// <feature>/components/index.ts
+export * from './create-widget-modal/create-widget-modal.component';
+export * from './details-step/widget-grid/widget-grid.component';
+```
+
+Files outside `components/` import from the root component barrel. Component specs import their same-folder implementation directly. Components importing sibling components use the concrete sibling path rather than the root barrel to avoid self-cycles.
+
+## Actions barrels
+
+An `actions/index.ts` follows the flat or namespaced re-export style in rule `client-ngrx-actions`.
+
+## Renaming a component folder
+
+When renaming or moving a component folder:
+
+1. Update its concrete path in the feature-level `components/index.ts`.
+2. Search for direct imports of the old path and update them.
+3. Do not add a local or intermediate barrel to preserve the old directory import.
+
+Forgetting step 1 breaks consumers of the feature component barrel.

@@ -1,0 +1,68 @@
+---
+description: "Use when adding or changing an Angular API service: endpoint wiring, URLs and routes, HTTP verbs, query or body shape, response mapping or casing, or exporting the service from its library."
+alwaysApply: false
+---
+
+# API Service Conventions
+
+## Find the wrapper and a sibling service
+
+Most codebases send HTTP through one wrapper service (base URL, headers, envelope and error handling) and give each backend domain an API service built on it. Find both before writing a method:
+
+```bash
+rg -l "HttpClient" apps libs src --glob '*.ts' --glob '!*.spec.ts'
+```
+
+The wrapper is the shared class that injects `HttpClient`; domain API services inject the wrapper. Read the wrapper's method signatures, a sibling domain service, and the backend controller action the method will call: HTTP verb, route, query/body shape, DTO property casing, and how the wrapper resolves the base URL. When a contract's placement, shape or exports change, settle that first with rule `client-models`, then write the service.
+
+## HTTP wrapper and service structure
+
+All feature HTTP calls go through a domain API service built on the wrapper. Never inject `HttpClient` in a component, effect or feature service, and never bypass the wrapper in a new API service. If the codebase has no wrapper, domain API services inject `HttpClient` themselves and are still the only HTTP callers; do not introduce a wrapper as a side effect.
+
+New services use `@Injectable({ providedIn: 'root' })`, not module-scoped providers or `providedIn: 'any'`.
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class WidgetApiService {
+  private api = inject(ApiService);
+  private endpoint = 'Widget';
+
+  getWidgets(searchTerm: string): Observable<WidgetSummary[]> {
+    return this.api.get<WidgetSummary[]>(`${this.endpoint}/GetWidgets`, { params: { searchTerm } });
+  }
+
+  saveWidget(request: SaveWidgetRequest): Observable<SaveWidgetResponse> {
+    return this.api.post<SaveWidgetResponse>(`${this.endpoint}/SaveWidget`, request);
+  }
+}
+```
+
+`ApiService` stands for the codebase's wrapper. Use its actual signatures when passing body, options or mappers; a GET's second argument is usually options, not a separate action name.
+
+Never inline named request/response interfaces in a service. Import wire contracts through the alias that rule `client-models` selects. Do not move contracts or add speculative alias migrations to a service change.
+
+## Endpoint and HTTP method shapes
+
+Build each URL from the backend's actual route attributes and the sibling methods, not from a naming convention. An ASP.NET `[controller]` route token is the class name without its `Controller` suffix (`WidgetController` -> `Widget`). Check whether the wrapper adds a prefix such as `/api/` or chooses among several configured base URLs, and do not assume every resolved URL has the same prefix. OData action routes can take the form `Widget(<id>)/Default.<Action>`. Do not replace an established route with the conventional pattern.
+
+## Backend response normalization
+
+Inspect the real response and the declared consumer shape. Read what the wrapper does by default: some unwrap an envelope such as OData's `value`; few convert PascalCase to camelCase. If a camelCase model needs a PascalCase response mapped, normalize at the API service boundary, through the wrapper's mapping argument if it has one or with `map` in the service, not in effects, reducers, selectors or components. Preserve actual wire casing when no conversion is needed.
+
+```typescript
+getWidgetList(): Observable<WidgetList> {
+  return this.api.get<WidgetListDto>(`${this.endpoint}/GetWidgetList`).pipe(
+    map((response) => ({
+      items: (response.Items ?? []).map((item) => ({ itemId: item.ItemId, canOpen: item.CanOpen })),
+    }))
+  );
+}
+```
+
+A mapper that replaces the wrapper's default envelope extraction must handle the envelope itself. Do not assume arbitrary DTO fields are camelCase or copy `Items ?? []` as a default for a required/non-list response.
+
+## Service exports and verification
+
+Export a new service from its library's public `index.ts` the way sibling services are exported, so consumers import it through the workspace alias (`tsconfig.base.json` `paths`) rather than a deep relative path.
+
+Whether the service gets its own spec: `{CURSOR}/skills/unit-test-guidance/client-conventions.md` (spec creation boundary). Narrow model or service wiring changes use TypeScript and build verification, and model or import-boundary changes need the consuming app build. Commands and evidence: rule `client-build-loops`.

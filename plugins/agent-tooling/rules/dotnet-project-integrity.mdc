@@ -1,0 +1,63 @@
+---
+description: "Use when creating DTOs, view models or repositories, or adding .NET project or package references."
+alwaysApply: false
+---
+
+# .NET Project Integrity
+
+## Search before creating a new DTO or model
+
+Before writing a new class to represent data, find where the codebase keeps each kind: list the projects (`dotnet sln list` in `{DOTNET}`) and read a sibling file in the chosen folder. Typical homes are a DTO or contracts project for request and response shapes, a view-model project, the entity project for persisted EF entities, and a folder there for mapped SQL view or function results. Search them for an existing type:
+
+```bash
+rg -l "(class|record|struct|interface) Widget\w*" {DOTNET} -g '*.cs'
+```
+
+If a matching type exists, use it; do not create a duplicate with a slightly different name.
+
+### DTO / model placement
+
+Do not define DTOs, projection rows, access scopes, request/response models, or other shared data contract classes inside repository interfaces or repository implementations. Interfaces hold repository contracts only; implementations hold query logic only. When a repository, service and test share a projected shape, put it in the project that holds DTOs and add a `using` from the consumer.
+
+Bad: `IWidgetRepository.cs` contains `public class WidgetRow`.
+Good: `WidgetRowDto.cs` in the DTO project, or an existing feature DTO file, contains the shared projection type.
+
+## Prefer the generic repository over a new domain-specific one
+
+When the codebase has a generic repository, check whether it covers the access pattern before creating `IFooRepository` / `FooRepository`. Rule `dotnet-repositories` owns what the generic provides and when a domain-specific repository is justified.
+
+## Never add a `<ProjectReference>` outside the solution
+
+Reference only projects already in the solution (`dotnet sln list` in `{DOTNET}`). Never reference a project in another repository.
+
+```xml
+<!-- correct -->
+<ProjectReference Include="..\MyApp.Contracts\MyApp.Contracts.csproj" />
+
+<!-- never: a project in another repository -->
+<ProjectReference Include="..\..\OtherRepo\src\Other.csproj" />
+```
+
+## Package reference rules
+
+**Before adding a new `<PackageReference>`,** check whether the same package is already used elsewhere in the solution:
+
+```bash
+rg PackageName {DOTNET} -g '*.csproj' -g '*.props'
+```
+
+If the package exists in another project, use the same version. When the repo uses central package management (`Directory.Packages.props`), the version goes there and the `<PackageReference>` carries none. Never reference one of the solution's own projects as a NuGet package; it is always a `<ProjectReference>` target.
+
+**Do not add packages to host projects** (the API, workers, consoles) unless the package is truly host-specific (e.g. hosting middleware, health checks). Business-logic packages belong in the service/repository projects they support.
+
+## Correct dependency direction
+
+Read the existing chain before adding a reference (`dotnet list <project> reference`). It typically runs host → services → data access → entities, with shared DTO, model and core projects below the services. Do not add references that invert it (e.g. the entity project referencing the services project).
+
+## DTO flags that mean ready or complete
+
+Boolean properties that mean a target or row is ready, complete, or has values must default to `false`. A missed assignment must look unfinished. Do not default them to `true`.
+
+## No new `.csproj` without explicit approval
+
+Creating a new project file changes the solution structure and requires bootstrapping DI, build configuration, and test coverage. Always stop and ask before creating a new `.csproj` or adding a project to the solution file.

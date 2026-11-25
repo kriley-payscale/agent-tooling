@@ -1,0 +1,39 @@
+---
+description: "Use before creating or modifying repository files (source, tests, configuration, documentation, rules or skills), or before introducing a new abstraction or pattern."
+alwaysApply: false
+---
+
+# Read Before Write
+
+## Before creating a new file
+
+Read at least one sibling file of the same type from the same folder. The sibling establishes:
+- `using` directives and imports needed
+- Naming conventions, namespace/module declarations
+- Decorator patterns (Angular) or attribute patterns (.NET)
+- Test setup patterns if creating a test file
+
+```
+# Example: creating a new service in a feature's services folder
+→ Read any existing service in that folder first
+
+# Example: creating a new NgRx effects file in a feature's effects folder
+→ Read any sibling effects file first
+
+# Example: creating a new SQL table definition
+→ Read an existing table file from the same folder first
+```
+
+**If no sibling exists** (truly first file in a new folder), read the parent folder's index/barrel, or a file that will import or reference this new file. Explain in your response why no sibling was available.
+
+For C# files, also read rule `dotnet-using-resolution`.
+
+## Before introducing a new architectural pattern
+
+Before adding a new abstraction, lifecycle, contract shape, or cross-layer interaction:
+
+1. Search the codebase for the closest existing implementation of the same workflow.
+2. Read the representative implementation end to end, including its callers and tests—not only a same-folder sibling for syntax.
+3. Use that established pattern when it satisfies the requirement.
+
+If no existing pattern fits, stop before implementation and surface the proposed pattern, why existing approaches do not fit, and its trade-offs for explicit approval. Do not silently turn task wording into a new project convention.

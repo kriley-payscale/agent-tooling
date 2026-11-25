@@ -1,0 +1,55 @@
+---
+description: "Use when changing Kendo UI for Angular Grid column chooser hosting, persisted column visibility restoration, scrollable mode, or paged rowIndex handling, for server- or client-paged Grids. Not Chart behavior or Kendo form controls."
+alwaysApply: false
+---
+
+# Kendo Grid Conventions
+
+When backend-owned paging, sorting, filtering or total-count state changes, follow skill `server-side-pagination`.
+
+## Host the column chooser inside the Grid
+
+`<kendo-grid-column-chooser>` only opens when it is a descendant of `<kendo-grid>`. Put Columns (and any other chooser host) in `kendoGridToolbarTemplate`, not a sibling toolbar outside the Grid. The header column menu (`[columnMenu]="true"`) is a separate control and does not replace the chooser.
+
+## Restore Grid column visibility in `afterRenderEffect`
+
+When restoring `ColumnComponent.hidden` from persisted state, apply it in `afterRenderEffect` — not a constructor `effect`.
+
+Columns created with `@for` are absent from `GridComponent.columns` until after render. Tracking the source arrays in an `effect` still runs too early: the effect and the `@for` column additions land in the same change-detection pass, the `QueryList` is empty, and the restore silently no-ops with `hidden` left `undefined`.
+
+Guard with a restore key so later renders do not re-apply stored state over changes the user made in session.
+
+```typescript
+private readonly grid = viewChild.required(GridComponent);
+private restoredKey: string | null = null;
+
+constructor() {
+  afterRenderEffect(() => {
+    const key = this.restoreKey();
+    if (this.restoredKey === key) {
+      return;
+    }
+
+    const hiddenFields = this.storedHiddenFields();
+    this.grid().columns.forEach((column) => {
+      if (column instanceof ColumnComponent && column.field) {
+        column.hidden = hiddenFields.includes(column.field);
+      }
+    });
+
+    this.restoredKey = key;
+  });
+}
+```
+
+Cover this with a spec that adds the dynamic columns first and then asserts the stored fields are hidden; a spec that only checks statically declared columns passes against the broken constructor-`effect` shape.
+
+## Grid rowIndex is absolute across pages
+
+In `kendoGridCellTemplate`, `rowIndex` is absolute across pages for every paged Grid, whether paging is on the server (`GridDataResult` plus `skip`) or on the client (`[kendoGridBinding]` plus `[pageable]`). Page 2 starts at `skip` (`pageSize` for client paging), not 0.
+
+Derive any page-relative index (an indexed test id, a per-page position) as `rowIndex - skip` when the component tracks `skip`. When it does not, use `rowIndex % pageSize` inline in the template; this is valid because page navigation keeps `skip` a multiple of `pageSize`. Do not add state or a page-change handler just to track `skip`.
+
+## Do not set `[scrollable]="'none'"` on a Grid with jsdom row assertions
+
+Do not set `[scrollable]="'none'"` on a Kendo Grid whose jsdom spec asserts bound rows. With `kendoGridBinding` the pager reports a non-zero item count while `kendoGridNoRecordsTemplate` still renders, so row assertions fail against a grid that actually has data. The default scrollable mode without `[height]` grows with the page and does not introduce an inner vertical scrollbar, so there is no layout reason to set it.

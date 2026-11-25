@@ -1,0 +1,150 @@
+---
+description: "Use when running discovery, writing or revising a plan, or starting or resuming Build of an approved plan: stage boundaries, delegation, the domain map and the plan folder layout."
+alwaysApply: false
+---
+
+# Plan workflow
+
+This rule owns what discovery, planning and Build share: stage boundaries, delegation, the domain map,
+the plan folder layout and the user-flow handoffs. Discovery runs whether or not a plan follows; planning
+and Build run only for a plan. Ordinary explanations and trivial edits skip this workflow.
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| Writing, revising or validating task artifacts, or executing an approved plan | rule `plan-task-schema` |
+| A direct planning request with sufficient supplied context and no Workspace Git readiness | `{CURSOR}/skills/discovery/workspace-git-readiness.md` |
+
+## Lifecycle boundaries
+
+- Discovery prompt: returns the prompt in chat; runs no discovery and creates no artifacts.
+- Discovery: never starts planning or Build itself; when a plan follows, it ends at a user review.
+- Planning: consequential gaps return to discovery; creating a plan never starts Build.
+- Build: the parent is Lead; Build never restarts discovery or planning.
+
+Planning starts only after the user's explicit choice at discovery's review
+checkpoint, even for research-and-plan requests; silence is not a choice. A direct
+planning request with sufficient supplied context skips discovery; if Workspace Git
+readiness is missing, run only `workspace-git-readiness.md`. Read-only artifact
+review and approved-plan resume never fetch or change checkouts. Build runs only
+when requested.
+
+## Delegation
+
+Delegate a bounded assignment when it can return a materially smaller, assessable
+result; keep small or rapidly evolving coupled work in the parent. File counts and
+token thresholds are not triggers. Each lifecycle skill owns its own dispatch, and
+these principles grant no role additional permissions.
+
+- Pass compact requirements, decisions, source identities, boundaries and guidance
+  explicitly; never rely on chat inheritance.
+- Check consequential evidence and integration boundaries before keeping a
+  conclusion. Keep accepted decisions, evidence links and precise unknowns in
+  existing artifacts, not raw worker trails.
+- Resume the same worker for the same problem while its inputs still apply; pass
+  the changes and require a focused delta naming superseded conclusions and
+  affected consumers/checks. Use a fresh worker only for an obsolete assignment,
+  an unavailable worker or a deliberately independent assessment, after confirming
+  an uncertain worker has stopped. Do not preload earlier rationale and call the
+  result independent.
+- Before a context handoff, record accepted conclusions, open questions,
+  provisional work and evidence freshness in existing artifacts; rebuild state from
+  artifacts and sources afterwards. During Build the Lead ledger is authoritative.
+- If delegation is unavailable, say so. The parent may do bounded work within its
+  own permissions, never past an approval or stop boundary.
+
+## Domain map
+
+Select one Agent per task by the paths it owns and its behavior. A path belongs to
+the deepest of `{SQL}`, `{DOTNET}` and `{CLIENT}` that holds it; several roles can
+share one repository. When two roles share one folder, a path in it goes by kind:
+.NET source and project files to `{DOTNET}`, client source and its workspace
+configuration to `{CLIENT}`, `*.sql` files and schema projects to `{SQL}`. Code of
+an unconfigured role goes to the agent whose role folder holds it (EF Core
+migrations inside `{DOTNET}`, for example); if none does, the role must be
+configured before that work is planned. Domain agent files are references during
+discovery/planning, not roles for the parent to assume.
+
+| Agent | Owns | Instructions |
+|---|---|---|
+| `implementation-sql-agent` | `{SQL}` | `{CURSOR}/agents/implementation-sql-agent.md` |
+| `implementation-dotnet-agent` | `{DOTNET}` | `{CURSOR}/agents/implementation-dotnet-agent.md` |
+| `implementation-client-agent` | `{CLIENT}`: apps, libs and supporting configuration | `{CURSOR}/agents/implementation-client-agent.md` |
+| `generalPurpose` | Tooling and other files outside `{SQL}`, `{DOTNET}` and `{CLIENT}`, such as a separate `{TILT}`; never files inside them | None; uses `{CURSOR}/skills/implement-plan/implementation-contract.md` directly and selects extra guidance by frontmatter description |
+| `orchestrator` | The final end-to-end verification task only | None; the parent runs it and never dispatches it |
+
+Every dispatched implementation worker follows the shared implementation contract.
+The planning helper and browser verifier are not implementation Agents and use
+their own contracts.
+
+## Guidance maps
+
+Read the procedure directly, not its shim. Read only targets whose trigger matches,
+and put the selected targets and references in each task's Read first. Operational
+guidance applies only when its operation or runtime is involved. `read-before-write`
+and `scope-creep-gate` apply at every stage.
+
+## Planning artifact layout
+
+New runs use `{ARTIFACTS}/planning/<plan-slug>/`, with a descriptive lowercase
+kebab-case slug recorded in the plan. Reuse the slug for the same run; use a
+distinct slug for unrelated work or a new run that would overwrite an approved
+artifact set.
+
+```text
+planning/<plan-slug>/
+  discovery/
+    discovery.md              handoff, includes Workspace Git readiness
+    user-flows.md             required flow handoff with stable UF IDs
+    <topic>.md                only when a focused topic needs its own evidence
+  <plan-slug>.plan.md         the plan
+  tasks/
+    01-task-<plan-slug>.md
+    ...
+    NN-task-<plan-slug>.md    final end-to-end verification
+  verification/               final-verification evidence per attempt, then per UF ID
+  execution-state.md          mutable Lead-owned execution ledger
+```
+
+`<plan-slug>.plan.md` is the plan on every host. Its YAML frontmatter holds `name`,
+`overview` and `todos`: one per task in execution order, each with an `id` and a
+`content` line. Task status lives in the execution ledger; a `status` field in an
+older plan is ignored. The body holds global Decisions, the Escalation boundary and
+Planning artifacts (the portable run root and discovery/flow handoffs). Named
+workstream groups list their task ids and numbered-file links, followed by the final
+integration gate; they never imply dispatch barriers. It does not duplicate task
+bodies.
+
+Each numbered file owns one task's executable contract and detail. Number files in
+plan order from 01 with at least two digits. Task artifacts link relevant
+discovery files and headings with relative links. Additional evidence files use
+descriptive topic names, not agent ids or dates. New plans materialize supplied
+discovery context here even when no research is needed. Honor explicit read-only
+requests; do not present an uncreated artifact set as an executable plan.
+
+Until Build starts, revise the plan, task and discovery files as needed and tell the
+user what changed. From the start of Build until it ends, those files are the approved
+artifact set and are frozen: workers never edit them, the Lead records progress and
+decisions in `execution-state.md`, and a change means stopping Build and revising.
+
+Paths and links:
+
+- The plan, task and discovery artifacts keep `{CURSOR}`, `{WORKSPACE}`,
+  `{ARTIFACTS}` and role tokens, never machine-absolute paths. Source references
+  use a tokenized repository root and ref.
+- Plan links to task and discovery files are relative to the run root. No
+  `#fragment`; wrap paths containing spaces in angle brackets; give each link a
+  readable purpose label and keep the todo id as separate metadata. Each link must
+  open an existing file.
+
+## User flows and Workspace Git readiness
+
+The discovery skill owns `discovery/user-flows.md`, its flow template, and Workspace
+Git readiness (freshness choice and feature-branch map). Planning maps every required
+UF ID to implementation tasks and exact final verification steps through the existing
+Discovery/Done when/Verification fields, and carries the branch map into Decisions;
+Build enforces the map before dispatch. Uncovered flows block readiness; technical
+checks alone do not cover a flow. A source/base change after research invalidates
+affected discovery, flows and contracts for reviewed revalidation; never silently
+refresh frozen evidence.

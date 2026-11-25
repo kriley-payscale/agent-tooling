@@ -1,0 +1,62 @@
+---
+description: "Use when creating or modifying Angular components, pages or templates, including component role and folder, Store ownership, static copy, QA or test ids, component SCSS, reuse of design-system components, classes, mixins and tokens, Bootstrap utility classes and shared feature style classes."
+alwaysApply: false
+---
+
+# Angular component conventions
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| Creating, extracting or registering a component; changing inputs, outputs, signals, effects or lifecycle; adding template dependencies or QA IDs; writing component SCSS or a new visual element | skill `client-angular-component` |
+| A type changes or needs an owner | rule `client-models` |
+
+## Choose the role before the folder
+
+Use the folder and file suffix the feature already uses for each role; a new feature follows the app's other features. The folders below are the defaults where neither shows a convention.
+
+- **Page:** a leaf route target representing a navigable screen or workflow step. Place it under `pages/`, with a `.page.ts` suffix only where the app already has page files (`.component.ts` otherwise). It may own route bootstrap, Store state, loading/error composition, and child coordination.
+- **Container:** an independently connected application region or routed layout whose primary responsibility is orchestration across multiple UI concerns. Place it under `containers/`. Loading is common but not required; Store usage alone does not make a container.
+- **Presentational component:** a reusable or parent-controlled visual/interaction unit. Place it under `components/`; pass application state through signal inputs and emit user intent through outputs.
+- **Feature component:** a cohesive feature-specific UI unit under `components/` that selects and/or dispatches its own Store slice when a parent handler would only forward that work.
+
+The Store-ownership defaults below give way to an established split: where the feature's components never inject Store and reach their parent only through inputs and outputs, keep that pattern.
+
+If the parent handler would only `store.dispatch(ExistingAction)` — even when it only adds an id to the payload — the child injects Store and dispatches. Do not add an output for that save. Skip dispatch only when required identity is missing. When the reducer already validates and no-ops invalid payloads, do not copy that validation into the child or the page.
+
+Keep an output only when the parent actually decides: navigation intent, composing one action from several children, or a workflow choice the child cannot make from its own inputs and Store slice. The kind of interaction (save, delete, select, toggle) never decides this; only the test above does.
+
+A child that renders a Store slice selects it. Do not pass that slice as inputs. Two consumers of the same selector is fine. The parent keeps a `selectSignal` only when its own template needs that value for a host conditional or banner. Mounting a child from a host conditional is not a reason to keep the child's display data on the parent.
+
+Page or container Store ownership is not a reason to lift child writes or child display reads. Prefer a presentational boundary when the child is reusable across features, or isolated rendering tests materially improve. Prefer a container when the region independently coordinates loading, routing, feature flags, multiple selectors/actions, or several presentational children.
+
+Size, forms, local interaction complexity, or Store usage by itself does not determine the role. Do not create a page plus a container when one only forwards to the other. Place each component bundle directly under the nearest meaningful collection; a grouping folder must own at least two sibling exportable concepts.
+
+## Shared constraints
+
+Preserve existing standalone and NgModule architecture. Skill `client-angular-component` owns architecture selection for new components and the conditional detail.
+
+Match the siblings' template and style placement (external `templateUrl` and `styleUrl(s)` unless they inline them); never add an empty stylesheet. Use `inject()` for new dependencies; abstract base classes may use constructor injection with `// eslint-disable-next-line @angular-eslint/prefer-inject`. New component binding/local state uses signals, new APIs use signal inputs/outputs; keep complex RxJS composition and bridge at the binding boundary. Check the installed `@angular/core` and `@ngrx/store` versions before using signal APIs; where they are missing, follow the file's existing style.
+
+## Static display text and type ownership
+
+Keep static display copy and static template-only classes in the template. Do not introduce TS properties for literal labels, titles, button text or CSS classes passed unchanged to that component's own template. For example, set `title="Delete widget"` and `confirmText="Delete"` on the template's modal element rather than two constant component properties.
+
+Strings remain in TS when derived from state, used as form defaults/submitted values, required by a component data API, or mapping API/domain values to display values. Prefer existing shared union types from the models libraries (rule `client-models`) for API, NgRx, route or control-flow strings; do not create enums for display labels.
+
+Rule `client-models` owns private draft/event, feature-local view/workflow and shared/wire placement. Multi-file use alone does not establish cross-feature ownership.
+
+Before introducing local option/lookup arrays, search for the same semantic values. Multiple production consumers share a `.constants.ts` at their narrowest common feature scope; derive variants and have UI/validation import that source. Keep feature values out of app-wide constants. Preserve component properties consumed by templates/specs, pointing them to the shared export.
+
+## QA preservation and small template edits
+
+When the codebase tags elements with a test-id attribute (`data-qa-id`, `data-testid`, `data-cy`), on templates created/edited, IDs belong on the root, actionable nodes and icons that alone show information or state, not static text, labels, headings, decorative icons, layout wrappers or children of already tagged controls. Do not add a wrapper just for an ID. Skill `client-angular-component` owns placement for multiple roots or detached overlays and naming for new IDs.
+
+An ID is frozen once present on the base branch: preserve it byte for byte, even if its naming differs from the current scheme. IDs introduced in the current unmerged change may be corrected before merge. Set attributes inline rather than calling a template helper. When a shared UI library defines its own QA-id constants or QA-id input, preserve them and pass the host's id through that input.
+
+When a literal copy edit changes a control's accessible name, inspect the associated control and existing assertion.
+
+## Incremental migration
+
+For an existing component using `async`/`@Input()`/`@Output()`, migrate only touched sections. Do not rewrite the entire component, change its architecture, or relocate it just to satisfy this taxonomy. Apply roles when creating an artifact or when a substantial change already changes its responsibility boundary. In an existing feature, page folder, per-component `index.ts` and grouping depth follow the collection a new artifact lands in; this rule's layouts apply to new features and to mixed or empty collections.

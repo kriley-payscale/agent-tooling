@@ -1,0 +1,74 @@
+---
+description: "Use when creating or changing TypeScript types or models in an Angular workspace, deciding where a type belongs (component, feature, shared library or API wire contract), or exporting models through a library barrel or path alias."
+alwaysApply: false
+---
+
+# Client Model Ownership and Conventions
+
+When a new or changed endpoint also needs these contracts, settle ownership and entrypoint exports here first, then implement the service and its export with rule `client-data-api-service`. Do not create a new service when an existing domain service is the appropriate owner.
+
+## Find the model libraries
+
+Read the `paths` in `{CLIENT}/tsconfig.base.json` (`tsconfig.json` outside Nx). Model libraries usually appear there as one alias for shared UI/domain models and one per API domain for wire contracts, each mapped to an `index.ts`. Read a sibling contract in the chosen owner before writing. Do not invent an alias that `paths` does not resolve.
+
+## Choose the owner before creating a type
+
+| Type | Owner |
+|------|-------|
+| API request/response and nested wire payload | The API-model entrypoint for that domain |
+| Cross-feature UI/domain contract | The shared models library |
+| Named feature-local view/workflow contract shared by components, actions or reducers | `<feature>/models/` |
+| Reducer-private state or rollback record | Reducer file |
+| Component-private draft or event | Component file |
+| One-off action payload | Inline `props<{ ... }>()` |
+| Legacy class-action union | Existing actions file |
+
+Without a separate API-model library, wire contracts go where sibling wire contracts live; do not create a library for one type.
+
+Multi-file use alone does not make a type cross-feature. A type used only by the current change is still placed by the table above; being new or single-use does not choose its location. Import named feature models directly from `models/`, never through an actions barrel. Follow an existing feature models-barrel convention; do not create a barrel solely for a new type. A separate model file is warranted when inlining would make an action, effect or reducer own an unrelated contract or introduce reverse dependencies.
+
+Preserve supported existing placements and aliases when a contract relocation is not requested. These rules guide new contracts and scoped changes; do not migrate contracts incidentally.
+
+## API model entrypoints and dependency direction
+
+Wire contracts and every nested payload type travel together in the applicable API-model entrypoint. Shared UI-only types (for example, view/modal discriminators that never cross the wire) belong in the UI/domain entrypoint; feature-only equivalents stay local.
+
+- UI/domain models may depend on API wire models.
+- API wire models must not depend on sibling UI/domain model libraries. Existing reverse imports are legacy, not precedent to copy.
+- Inside an API entrypoint, import a nested payload from its sibling file, for example `import { WidgetListItem } from './widget-list-item.model';` in `response/widget-list-response.model.ts`.
+
+These folders can be separate TS/Nx projects. Do not assume sibling directory barrels cross project boundaries. A clean `dpdm --circular` run detects file cycles; it does not prove correct dependency direction.
+
+From app and data code, import through the supported alias. Not every domain has the same alias shape; check `paths` and the target model project's exports.
+
+If TypeScript suggests `moduleResolution: nodenext`, check the import target, barrel export and subproject boundary first. Do not change module resolution to fix a missing local export.
+
+## File naming and declarations
+
+Name the file and the type the way siblings in the owner do; a common scheme is `kebab-case.model.ts` for interfaces and type aliases and `kebab-case.enum.ts` for enums, with the PascalCase type name matching the file.
+
+New model files contain plain `interface` or `type` declarations, not classes, `@Injectable`, or Angular decorators. A wire contract describes parsed JSON: `HttpClient` never constructs a class, so its methods and initializers would not exist at run time. Closely related interfaces that always travel together may share a file, such as `WidgetImpactRequest` and `WidgetImpactResponse` in `widget-impact.model.ts`.
+
+```typescript
+// widget-rule.model.ts
+export interface WidgetRule {
+  id: number;
+  name: string;
+  description: string;
+}
+```
+
+## Register the correct public entrypoint
+
+1. Add the new file to the target entrypoint's domain barrel, creating that barrel only when required by its established structure:
+
+   ```typescript
+   // <models-library>/widget/index.ts
+   export * from './widget-rule.model';
+   ```
+
+2. When the library root `index.ts` re-exports domain barrels, add `export * from './my-new-domain';` only for a new domain; never duplicate an existing domain export or add an individual model already covered by the domain barrel.
+
+3. For a domain with its own alias, export through that alias's own `index.ts`; do not assume the library root re-exports it.
+
+Verify the intended consumer can resolve the type from its actual alias. A missing barrel is not a reason to deep-import across model projects.

@@ -1,0 +1,6 @@
+---
+description: "Use when changing Angular route declarations, guards, route data or tabs, Router navigation, routerLink or href paths, base href handling, deep links or navigation menu entries. A new top-level feature route uses client-angular-feature-module."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/client-angular-route/SKILL.md` as the compact router. Select only its references applicable to the changed behavior; do not load every topic.

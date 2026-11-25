@@ -1,0 +1,41 @@
+---
+description: "Use when saving entities, writing created or modified audit columns, or using ExecuteUpdate, raw SQL or bulk writes that bypass SaveChanges in .NET services and repositories."
+alwaysApply: false
+---
+
+# .NET Audit Fields
+
+## Find who stamps them
+
+Codebases usually stamp created-by, created-at, modified-by and modified-at in one place: a `SaveChanges`/`SaveChangesAsync` override on the DbContext, or a `SaveChangesInterceptor`, that sets them on `Added` and `Modified` entries of an audit base class or interface. Find it before writing a save: search the DbContext's project for `ChangeTracker.Entries`, `SavingChanges` and `SaveChangesInterceptor`. Read which entries it stamps, where the acting user comes from (a save-overload argument or a current-user service), which clock it uses, and any opt-out flag. `ModifiedBy` and `ModifiedAt` below stand for the codebase's own names.
+
+When the context stamps them:
+
+- Services do not assign the audit columns. They pass the acting user to the save the way the stamping code expects. A value assigned before the save is overwritten.
+- Controllers never touch audit fields.
+- Paths that bypass `SaveChanges` stamp the columns themselves, with the same clock as the context: the created and modified columns on inserts, the modified columns on updates. They are `ExecuteUpdate`/`ExecuteUpdateAsync`, raw SQL, and bulk-extension writes such as EFCore.BulkExtensions `BulkInsert`/`BulkUpdate`. A codebase bulk wrapper may stamp before calling the library; read it.
+- Use the stamping code's clock everywhere. If it stamps local time (`DateTime.Now`), never write UTC into those columns; a timestamp that must be UTC gets a `*Utc` column and property name.
+- Do not compare `ModifiedAt` or `CreatedAt` for equality to detect an intervening write. When the column is SQL Server `datetime` and the model does not map it as `datetime`, EF sends `datetime2` parameters, so a stored value whose milliseconds end in 3 or 7 never matches, and the in-memory test provider does not show it. Serialize the competing writers with the lock they already take; do not add a column-type mapping just to make the comparison work.
+- The stamping code sees only `Added` and `Modified` entries. If every assignment on a tracked entity is a no-op (for example resetting a status to the value it already has), change detection leaves the entry `Unchanged` and `ModifiedAt` does not move. When the write is meant to bump the entity's last-modified date, mark the owned properties modified instead of assigning audit columns. Assert that in the service test, and prove the bump against SQL Server when the date is user-visible.
+
+```csharp
+// correct: the save stamps the audit columns
+widget.Name = request.Name;
+await context.SaveChangesAsync();
+
+// wrong: dead write, the save overwrites it
+widget.ModifiedAt = DateTime.UtcNow;
+
+// the write must bump ModifiedAt even when the assigned value is unchanged
+widget.Status = WidgetStatus.InProgress;
+context.Entry(widget).Property(w => w.Status).IsModified = true;
+await context.SaveChangesAsync();
+
+// change tracker bypassed: stamp explicitly, with the context's clock
+await context.Widgets
+    .Where(widget => widget.TenantId == tenantId)
+    .ExecuteUpdateAsync(setters => setters
+        .SetProperty(widget => widget.IsActive, false)
+        .SetProperty(widget => widget.ModifiedBy, userId)
+        .SetProperty(widget => widget.ModifiedAt, DateTime.Now));
+```

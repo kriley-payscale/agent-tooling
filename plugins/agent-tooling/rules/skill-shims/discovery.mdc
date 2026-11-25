@@ -1,0 +1,6 @@
+---
+description: "Use when about to recommend an approach, estimate or rule out an option, or start a change beyond a trivial edit that no approved plan covers, and when planning finds a gap. Establishes requirements, current behavior, runtime cost and options; changes no code."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/discovery/SKILL.md` for the full procedure.

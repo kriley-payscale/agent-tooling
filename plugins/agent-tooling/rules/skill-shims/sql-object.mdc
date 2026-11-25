@@ -1,0 +1,6 @@
+---
+description: "Use when creating, porting or explicitly changing a table, view, stored procedure or function in the repo's schema source (a SQL project, EF Core migrations, or DbUp or Flyway scripts), including file naming, registration, keys and indexes. Not for choosing a query optimization."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/sql-object/SKILL.md` for the full step-by-step procedure.

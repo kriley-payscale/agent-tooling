@@ -1,0 +1,52 @@
+---
+description: "Use when reading, adding or removing a feature flag in Angular components, effects, route guards or specs, or changing the flag key list."
+alwaysApply: false
+---
+
+# Client feature flags
+
+## Find the flag service and keys
+
+Read flags through the codebase's flag service, never the vendor SDK directly. Find the service and its key list before writing:
+
+```bash
+rg -l -i "featureflag|launchdarkly|unleash|configcat" apps libs src --glob '*.ts' --glob '!*.spec.ts'
+```
+
+Keys usually live in one constants file. Add a key in the order that file uses (alphabetical when its header says so), not at the bottom. Read the service for its reads: a signal, a snapshot, a readiness wait, and JSON variations.
+
+## Reading
+
+Pass an explicit default (off) on every read.
+
+| Where | Use |
+|---|---|
+| Component or page | the service's signal read, in a `readonly` field |
+| Effect | the snapshot read inside the operator, so it is evaluated per action |
+| Route | the codebase's flag guard, with the `data` shape that guard reads (skill `client-angular-route`); a custom guard waits for the flag client to be ready before reading, and returns the default when it is not |
+| JSON variation | the service's JSON read; its default covers only null/undefined, so validate the shape |
+
+- A snapshot read before the flag client initializes returns the default, and it ignores live toggles. Signals react to changes.
+- If the service caches one signal per key, the first caller's default wins; use the same default everywhere.
+- Keep a legacy subscription-based read where it exists; do not add one to new code.
+
+## Adding
+
+- A new key in the flag provider needs approval (`{CURSOR}/rules/scope-creep-gate.mdc`).
+- Check how the client receives flag values (straight from the vendor SDK, or a bootstrap the server builds) before deciding whether a client-only read needs a server change.
+- A client-only gate leaves the API open. When the API must enforce the gate, add the same key on the server and check it per `{CURSOR}/rules/dotnet-service-conventions.mdc`.
+
+## Removing
+
+Delete the key, then `git grep` its constant name and string value in the client and server repositories. Remove the reads and any subscription plumbing, guard entries and their route `data`, the off branch in code and templates and its spec cases, the spec provider once nothing reads a flag, and the server constant and its checks.
+
+## Specs
+
+When there is no shared mock of the flag service, use an inline `useValue` with only the methods the unit calls, and make the signal read return a real signal:
+
+```typescript
+const myFeatureEnabled = signal(false);
+{ provide: FlagService, useValue: { flag: jest.fn(() => myFeatureEnabled) } }
+```
+
+`FlagService.flag` stands for the codebase's service and its signal read. For several flags, branch on the key. Cover the on path with `myFeatureEnabled.set(true)` then `fixture.detectChanges()`. A bare `jest.fn()` returns `undefined` and the first read throws. Effect and guard specs mock the snapshot read (and the readiness wait for a guard) with `jest.fn().mockReturnValue(...)`.

@@ -1,0 +1,6 @@
+---
+description: "Use when creating or porting an ASP.NET Core API controller, or adding or changing controller action methods, for routing, binding, authorization and service wiring."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/dotnet-controller/SKILL.md` for the full step-by-step procedure.

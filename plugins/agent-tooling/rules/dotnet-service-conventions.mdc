@@ -1,0 +1,105 @@
+---
+description: "Use when adding or changing .NET service classes (*Service.cs) and their interfaces, including DI registration and lifetimes, feature flags, logging and IOptions configuration. Scaffolding a new service uses the dotnet-service procedure."
+alwaysApply: false
+---
+
+# .NET Service Layer Conventions
+
+## Interface conventions
+
+- Location: beside the feature's sibling service interfaces (find them with `rg -l "interface I\w+Service\b" {DOTNET} -g '*.cs'`)
+- Name: `I{Feature}Service`
+- Async public methods use `Task`/`Task<T>` return types with an `Async` suffix; synchronous methods are allowed alongside async for non-I/O paths
+- When the interface is decorated (`Decorate<IWidgetService` in a composition root, or a hand-written decorator), follow rule `dotnet-decorators` for every method you add or change.
+
+```csharp
+public interface IWidgetService
+{
+    Task<Widget> CreateWidgetAsync(CreateWidgetRequest request);
+    Task<WidgetDetailDto> GetWidgetDetailAsync(int tenantId, int userId, int widgetId);
+    Task UpdateWidgetStatusAsync(int widgetId, WidgetStatus status);
+    List<WidgetType> GetWidgetTypes();
+}
+```
+
+## Class structure
+
+Match the sibling services: constructor shape (primary constructor or classic `private readonly` fields), field naming, member order, any `#region` layout, and private method naming. Do not convert existing services to another shape. Mutable non-DI state, such as a per-request cache, is a field, not a constructor parameter.
+
+## Feature flags
+
+- Use the codebase's flag service the way existing callers do: Microsoft.FeatureManagement `IFeatureManager`, the LaunchDarkly `ILdClient`, or a codebase wrapper around one (search for those names).
+- Build the evaluation context (user, tenant) the way existing callers do, usually through a shared helper; do not construct it inline.
+- Reference flag keys through the codebase's constants, not string literals.
+- For a full implementation swap driven by a flag, use keyed DI and a facade service: the facade takes both implementations as `[FromKeyedServices(...)]` parameters and picks one per call from the flag.
+
+## Validation at entry
+
+Validate parameters and required lookups at the top of the public method. Which exception to throw, and how it reaches the client, is in rule `dotnet-error-handling` "Exception types".
+
+## Orchestration
+
+- Repositories own persistence; call other `I*Service` dependencies for cross-domain work
+- **Before injecting an existing `I*Service` into another service, trace the target's own constructor dependencies transitively.** A cycle builds cleanly and throws when the container first resolves it.
+- When you find a cycle, extract what the lower-level service actually needs (usually a catalog, a set of defaults or a mapping, not the orchestration) into its own leaf service both sides depend on. Do not use property injection, a `Lazy<T>` or a service locator.
+- The service consumes the request and prepares values. It does not mutate entities a specialized feature repository already owns. Write placement (generic repository vs specialized repository) is in rule `dotnet-repositories`.
+- Use `switch` expressions on enums to route to private helpers in multi-type routing methods
+
+## Return types
+
+- Expose DTOs or view models at the service boundary, not EF entities
+- Prefer strong types for new code; `dynamic` exists only for legacy APIs that already use it
+
+```csharp
+// correct: returns a view model
+public WidgetDetailDto GetWidgetDetail(int widgetId)
+{
+    var widget = _widgetRepository.GetById(widgetId);
+    return new WidgetDetailDto(widget, _options.MaxParts);
+}
+
+// wrong: leaks an EF entity across the service boundary
+public Widget GetWidget(int widgetId) => _widgetRepository.GetById(widgetId);
+```
+
+## Logging
+
+Add `ILogger<T>` only when the service has meaningful failure paths (integration calls, multi-step writes, external dependencies). Do not add a logger to every service by default. Use message templates with named placeholders, never string interpolation:
+
+```csharp
+logger.LogWarning(
+    "Widget refresh skipped for widget {WidgetId}: no filter found for {FilterId}",
+    widget.Id,
+    request.FilterId);
+
+logger.LogError(ex, "Widget refresh failed for widget {WidgetId}", widget.Id);
+```
+
+## Strongly-typed configuration — IOptions\<TConfig\>
+
+Inject configuration via `IOptions<TConfig>`. Never inject `IConfiguration` directly into a service.
+
+Config class conventions, unless sibling options classes differ:
+- Lives beside the service, or where sibling options classes live
+- Declares `public const string Position` matching the appsettings section key
+- Properties match appsettings key names exactly
+
+Register it in the composition root:
+
+```csharp
+services.Configure<WidgetOptions>(configuration.GetSection(WidgetOptions.Position));
+```
+
+Read `.Value` where it is used, or assign it to a field in a classic constructor, as siblings do.
+
+## DI lifetimes
+
+| Lifetime | When to use |
+|---|---|
+| `AddScoped` | Default for all services and repositories — one instance per HTTP request |
+| `AddSingleton` | Thread-safe, stateless utilities; factories; cache providers |
+| `AddTransient` | Strategy implementations selected per-call by a factory |
+
+Register HTTP clients with `AddHttpClient` the way siblings do. `IHttpClientFactory` gives a typed client a transient lifetime; registering one as a singleton, or injecting it into one, pins a single handler that misses DNS changes.
+
+Register services and repositories beside the feature's sibling registrations: search for a sibling interface (`rg -n "ISiblingService\b" {DOTNET} -g '*.cs'`) to find its `AddScoped` line or registration group, and add to it. When the codebase registers by convention (Scrutor `Scan`, or an assembly-scanning helper), confirm the new class matches the convention instead of adding a line.

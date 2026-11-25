@@ -1,0 +1,68 @@
+---
+description: "Use when verifying a .NET API's readiness after a Tilt live update, when an endpoint returns 502 after a publish, when confirming a publish contains a change, or when a Tilt-run .NET service crash-loops, a live update is stuck or a published assembly looks stale."
+alwaysApply: false
+---
+
+# Tilt .NET readiness
+
+Tilt runs `dotnet publish` on the host into a publish folder (`<publish>/<service>/` below), syncs the output into the running pod and restarts the process in place.
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| Changing how the publish, sync or entry assembly is configured | rule `tilt-dotnet-live-update` |
+
+## Find the resource, namespace and pod
+
+`tilt get uiresources` lists resource names, and `kubectl get pods -A -l app.kubernetes.io/managed-by=tilt` lists Tilt's pods with their namespaces. Don't assume the `default` namespace or an `app=<name>` label: `kubectl get pods -l app=<name>` and an unqualified `kubectl logs -l app=<name>` return empty rather than erroring, which looks the same as a missing pod.
+
+## Verify an Endpoint After Live Update
+
+Publish and sync can trigger multiple in-place process restarts. During that window, ingress can briefly have no ready upstream and return HTTP 502.
+
+Before an authenticated endpoint check, confirm all four conditions:
+1. the relevant Tilt publish and resource updates have settled,
+2. the pod is ready,
+3. the service has an endpoint,
+4. the latest child-process `Now listening` event is newer than the latest shutdown event.
+
+```bash
+kubectl -n <namespace> get pods
+kubectl -n <namespace> get endpoints <service>
+kubectl -n <namespace> logs <pod> --since=<minutes since the publish> | rg "Now listening|Application is shutting down"
+```
+
+A small `--tail` is the wrong window. Startup and the first requests after a restart can emit hundreds of warning lines (EF Core model-validation warnings, for example), which push both events out of a few-hundred-line tail, so a polling check keeps seeing no event. Scope by `--since`, or grep the whole current log, then compare the newest of each event. A burst of warnings is not a restart. Only an `Application is shutting down` line newer than the last `Now listening` means the process went down.
+
+Containers usually log in UTC while `tilt` and host timestamps are local. Compare listen versus shutdown inside the pod's own log stream, not against a locally observed publish time.
+
+Confirming the publish actually contains the change is a timestamp comparison, not an inference from `updateStatus: ok`: compare the edited source file's mtime against the published `<publish>/<service>/<Assembly>.dll`.
+
+That comparison is ambiguous when the published DLL was written within seconds of the last edit, or when later publish runs left it untouched (an incremental publish does not rewrite an up-to-date DLL, so its mtime can predate the newest publish). In that case confirm content, not time. Grep the published DLL for a member name the edit added or removed (`rg -c -a '<memberName>' <publish>/<service>/<Assembly>.dll`) only when no other identifier in the assembly contains that name; a name inside a longer one matches whether or not the edit compiled in. Otherwise take the configuration and runtime identifier from the publish resource's command (`-c` and `-r`; `dotnet publish` defaults to Release for net8.0 and later), run `dotnet clean` and `dotnet build` on `<DefiningProject>/<DefiningProject>.csproj` with that `-c` and `-r`, and require `cmp` to find the published DLL identical to `<DefiningProject>/obj/<Configuration>/<tfm>/[<rid>/]<Assembly>.dll`, which the publish copies. For type-shape changes such as a new base class, reflect over the published assembly with a throwaway `dotnet fsi` script in `/tmp` that loads it through an `AssemblyLoadContext` resolving dependencies from the service's publish folder.
+
+`1/1 Ready` and a populated service endpoint are not sufficient while the restart wrapper owns container readiness. The wrapper can remain ready and keep the endpoint registered while the child .NET process is stopped. Compare the latest shutdown and `Now listening` events; endpoint verification may begin only when the newest `Now listening` is later.
+
+Treat a 502 while a restart is active as transient infrastructure state, not an authentication or endpoint-contract failure. After all four conditions are true, retry authentication and the endpoint once. If the retry still returns 502 while the pod remains stable, report a blocker and inspect ingress and service routing.
+
+Do not change endpoint code, credentials, authorization attributes, or authentication logic solely because of a restart-window 502.
+
+### Live update stuck on a crash-looping pod
+
+When the API container is crash-looping (for example a DI registration that lands in a later change than the constructors that need it), a live update into it can fail with `tar -C / -x -f -` exit code 137 and leave the service's update `in_progress` indefinitely.
+
+While it is stuck, the publish resource sits `pending` with waiting reason `is-unparallelizable-local`, so fixing the source does not republish and the four readiness conditions never become true. `tilt trigger <publish resource>` does not help. Check the target waiting reasons in `tilt get session Tiltfile -o yaml` and the service's update error before waiting longer.
+
+Recovery: delete the crash-looping pod (`kubectl -n <namespace> delete pod <pod>`). The stuck update ends, the pending publish runs, and Tilt rebuilds the image from the new publish. Then re-check the four conditions and that the published DLL contains the change (see the content-check paragraph above).
+
+Do not restart Tilt or kill `dotnet` for this.
+
+## Stale Publish Artifact Diagnosis
+
+If a Tilt-run .NET service crash-loops with `FileNotFoundException`, `FileLoadException`, or an assembly version mismatch even though the `.csproj` reference is correct, check the publish folder for stale files before changing package references:
+
+- Compare the service's `*.deps.json` in the publish folder against the DLL actually present there.
+- If needed, compare the DLL hash or version with the NuGet package in `~/.nuget/packages/`.
+- A stale DLL can survive an incremental `dotnet publish` and make the pod fail while the build output metadata expects a newer version.
+
+Do not use a broad `rm -rf` of the publish folders as a casual fix while Tilt is watching the tree. Deleting large watched directories can trigger `fsnotify` queue or buffer overflow, or a publish loop. Prefer narrow cleanup of the suspect artifact for diagnosis, then choose a deliberate long-term publish-output cleanup strategy.

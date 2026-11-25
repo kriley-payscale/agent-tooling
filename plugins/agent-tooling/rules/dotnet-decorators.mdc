@@ -1,0 +1,68 @@
+---
+description: "Use when adding, removing or changing a method on a .NET service or repository interface, when the compiler reports that a *Decorator class does not implement an interface member, or when adding a cache or publish decorator. Covers keeping publish (search indexing, events) and cache decorators in sync."
+alwaysApply: false
+---
+
+# .NET Decorators Stay in Sync With Their Interface
+
+## Find every decorator first
+
+Before changing a service or repository interface, find every decorator of it. Decorators are registered with Scrutor's `Decorate<IWidgetService, ...>()` or by hand (a factory that wraps the inner implementation), often in more than one host's composition root (API, background worker, console). One interface can have several. Search the working tree and the integration branch, since a decorator added there after you branched breaks the merged build:
+
+```bash
+git grep -n -F "Decorate<IWidgetService,"
+git grep -n -F "Decorate<IWidgetService," origin/<integration branch>
+git grep -n -P "[:,]\s*IWidgetService\b" -- '*.cs'
+```
+
+The last search lists implementations, and some consumers; a decorator both implements `IWidgetService` and takes one in its constructor.
+
+When a decorator derives from an abstract decorator base that implements the interface with virtual pass-throughs, the new member goes in that base and every derived decorator compiles without it. Review each derived decorator anyway.
+
+## Reads versus writes
+
+When the new method only reads, pass it through (or cache it per Adding a cache decorator). When it writes, a bare pass-through is a bug unless you have confirmed nothing built from the written rows is indexed, published or cached: build and tests stay green while search results, downstream consumers or cached reads go stale.
+
+## Write methods in a publish decorator
+
+A publish decorator sends a message after the inner write, for example to update a search index or notify another service.
+
+- Await the inner call, then publish. Take created ids from its result.
+- Send the same message kinds and ids as the sibling write that touches the same rows, reusing its private helper. For a new kind of write, read the consumers (indexers, handlers) whose queries read the tables you wrote.
+- Reuse a sibling's helper as it is, even if it sends synchronously. Write a new send call as async in an async method.
+- Skip the publish when the id list is empty, after reading what the base does with one: it may throw, or treat an empty list as everything.
+- Use the delete-specific message or action for deletes, as siblings do.
+
+## Adding a cache decorator
+
+Put it beside the existing cache decorators, use the cache abstraction they use (LazyCache `IAppCache`, `IMemoryCache`, `IDistributedCache`, `HybridCache` or a codebase wrapper), and register it the way they are registered, for example `services.Decorate<IWidgetRepository, WidgetRepositoryCacheDecorator>()`.
+
+```csharp
+public class WidgetRepositoryCacheDecorator(
+    IWidgetRepository inner,
+    IAppCache cache) : IWidgetRepository
+{
+    public Task<IEnumerable<WidgetDto>> GetByTenantAsync(int tenantId)
+        => cache.GetOrAddAsync(
+            $"WidgetRepository.GetByTenant({tenantId})",
+            () => inner.GetByTenantAsync(tenantId),
+            DateTimeOffset.Now.AddMinutes(5));
+}
+```
+
+Follow the existing key format (commonly `TypeName.MethodName(args)`), and put every argument the result depends on in the key, including the tenant.
+
+Register the decorator in every host that resolves the interface, inside the same guard as that host's other cache decorators (such as a caching-enabled setting). Each host keeps its own list; a host without the registration runs the repository uncached. Find the hosts by searching for an existing cache decorator's registration.
+
+## Write methods in a cache decorator
+
+When the inner write succeeds, call `Remove` for every key it makes stale, including keys cached by other decorators.
+
+- Copy the key string from the reader exactly, or share a private key helper. A mismatched key fails silently.
+- When the read key has parameters the write cannot know, remove each variant or do not cache that read.
+- With several app instances, check whether `Remove` reaches the others: a distributed cache or a broadcasting wrapper does, a per-process `IMemoryCache` does not, and `HybridCache` leaves other instances' in-memory copies until they expire. Do not add your own subscriber when the wrapper already broadcasts.
+- A host that writes without the decorator invalidates nothing, so register it in every host that writes.
+
+## Tests
+
+When adding a decorated method, extend the decorator's test, following its siblings. With NSubstitute: assert the inner call, then the publish or `Remove(expectedKey)` received for a write, or `DidNotReceive()` for a pass-through.

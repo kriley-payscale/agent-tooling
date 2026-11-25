@@ -1,0 +1,61 @@
+---
+description: "Use when a dotnet build or test fails, shows no error line, hangs or leaves dotnet processes behind, including CS9273 in copied code, a stale project-reference assembly and MSB4018 on .deps.json."
+alwaysApply: false
+---
+
+# .NET Build and Test Failures
+
+Rule `dotnet-build-loops` owns the commands. Rerun only the command it prescribes. The filtered rerun below is the only permitted pipe or redirect.
+
+## Classify before acting
+
+When a failed `dotnet build` shows no `error CS` line because the agent tool truncated the output (restore prints tens of KB of NU190x warnings first), rerun the same build once filtered for errors, `dotnet build <project> 2>&1 | rg ": error "`, and quote those lines. The exit code of the unfiltered run is the result.
+
+If a prescribed build or test fails:
+
+1. **Copy the exact error message** — compiler error code, file, line number.
+2. **Classify the cause:**
+   - **Introduced by the current task and in scope:** fix the exact error, then rerun the same prescribed build command.
+   - **Environmental, unrelated, authorization-related, or materially out of scope:** report the verbatim error and stop.
+3. If the same root error survives one targeted correction, report it and stop.
+
+### `field` keyword in copied code — CS9273
+
+Code restored or copied from an older branch can fail with `CS9273` in a project whose effective language version is C# 14. That is any `net10.0` project with no pinned `<LangVersion>`. A project that pins an older `<LangVersion>` does not see it, so projects in one solution can disagree. Check the `.csproj` and any `Directory.Build.props` before diagnosing.
+
+Inside a property getter, setter, or `init` accessor, an identifier named `field`, including a lambda parameter, binds to the compiler-generated backing field.
+
+This is an in-scope source defect in the copied file, not an environment or SDK problem. Rename the identifier (`@field` also compiles), and rescan the other copied files for the same pattern before the next build. Do not change the language version.
+
+### Stale project-reference assembly — one bounded correction
+
+Use this case when either:
+
+- A canonical build reports that a newly added public member or constructor does not exist (for example, CS1061 or CS1729) even though it is present on the exact defining source type.
+- The canonical build is clean, but a test asserts a value the current source plainly produces and the observed value is exactly what the previous revision of that line would have produced. Do not debug the test or the production wiring first.
+
+This covers both a stale upstream dependency inside the host project's build and a stale reference consumed by the test project.
+
+1. Identify the fully qualified type and its defining project. Confirm the member or the asserted behavior exists in current source, the consumer references that project, and the failure is not a duplicate type, wrong namespace/`using`, or ordinary source defect.
+2. Record timestamps for the changed source file, the defining project's `bin/Debug/<tfm>/<Assembly>.dll`, and its `obj/Debug/<tfm>/ref/<Assembly>.dll`. `<tfm>` is the folder the project builds for: its `<TargetFramework>` element, and the `-> .../bin/Debug/<tfm>/` path the build prints for each project. Do not assume a framework folder. A leftover folder from an earlier framework holds old assemblies that look stale when the build is current, or mask a real stale one. A `ref/` assembly older than the changed source is stale evidence. When a file-watching publisher compiles concurrently with editing, the bin assembly can be newer than the source and still contain pre-edit behavior — output-newer-than-source is not freshness in that situation.
+3. Clean only the defining project:
+
+```bash
+dotnet clean <DefiningProject>/<DefiningProject>.csproj
+```
+
+4. Rerun the exact failed canonical command once (the build that reported CS1061/CS1729, or the test run that showed the previous-revision value). Do not edit source to accommodate stale binaries. If the same root error remains, report it and stop under the retry rule above.
+
+Self-correction does not permit command hunting. Do not:
+- Change flags or add `--verbosity quiet`
+- Switch to a full-solution build to "see more output"
+- Run the same build again without a relevant code or environment correction, apart from the truncated-output rerun
+- Comment out or delete required behavior merely to make compilation pass
+
+If a killed or hung `dotnet` command left workers behind, stop only the leftover `dotnet` processes from this session, and only when no file watcher or publisher (a Tilt live update, `dotnet watch`) is running. Do not `pkill -f "dotnet"` or otherwise kill `dotnet` while one is; that kills its build and publish workers and the processes it serves. For MSB3554 / file-in-use on `obj/` caches, retry the exact build first.
+
+Any write to watched source — `git stash push`/`pop`, `checkout`, `revert`, or copying a file over the working tree — fires a running watcher or publisher. While it builds or publishes it holds `bin/<Configuration>/<tfm>/*.deps.json`. A build of the same configuration started immediately afterwards fails with `MSB4018: The "GenerateDepsFile" task failed unexpectedly` wrapping `IOException` on `.deps.json`, often on projects the change never touched. This is not a stale-reference problem and `dotnet clean` is the wrong response. Wait for the publish to settle, then retry the exact command once. It is not grounds for killing the watcher's `dotnet` processes.
+
+## Infinite retry — stop immediately
+
+Every rerun requires a targeted correction addressing the preceding error; the truncated-output rerun, which only recovers the error text, is the one exception. If there was no correction, or the same error repeats after correction, stop. The build environment does not become healthy on its own.

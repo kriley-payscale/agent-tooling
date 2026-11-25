@@ -1,0 +1,6 @@
+---
+description: "Use when adding and registering a new NgRx slice in an existing Angular feature module. Edits to existing actions, reducers, effects or selectors use their own rules."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/client-ngrx-feature-slice/SKILL.md` as the compact router. Select only its references applicable to the changed behavior; do not load every topic.

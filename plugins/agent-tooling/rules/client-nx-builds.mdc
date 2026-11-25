@@ -1,0 +1,42 @@
+---
+description: "Use when running an nx build of an Angular app or reading its result, when an nx build watcher may be running, or when a build fails without a visible compiler diagnostic."
+alwaysApply: false
+---
+
+# Client Nx Build Evidence
+
+Run from `{CLIENT}`, one client verification command at a time. Rule `client-build-loops` owns preflight, process capacity, tests, type-checks and lint. Read its Preflight first when `node_modules` is missing or the registry returns E401 or E403.
+
+## Nx builds
+
+Require explicit local browser-bundle completion with no compilation error. `NX Successfully ran target build` is a generic footer, not evidence.
+
+The completion marker depends on the app's builder (`targets.build.executor` in `project.json`):
+
+- webpack builders (`@nx/angular:webpack-browser`, `@angular-devkit/build-angular:browser`): a `Build at:` line carrying the bundle hash and elapsed time.
+- esbuild `application` builders: `Application bundle generation complete.`
+- Any other builder: take the marker from one known-good build's output.
+
+Filter the build output for the marker together with `error TS` / `ERROR`. The marker with no compiler diagnostic is the required evidence.
+
+When the log ends with a long run of warnings (Dart Sass `@import` deprecations are common), `tail -N` shows only those warnings plus the generic footer. Filter for the marker instead.
+
+When that output is captured to a file and then filtered, ANSI color codes can split the marker, so a literal match returns nothing even though the bundle completed. Run the build with color disabled (`NO_COLOR=1 FORCE_COLOR=0`), or strip escape codes before filtering. An empty marker match on a zero-exit build means the marker was not found. On webpack builders, look for the hash-bearing line (`Hash:` / `Time:`) before rerunning the build.
+
+Decide by the watcher. A running `nx build <app> --watch` writes the app's output path (`outputPath` in `project.json`, often `dist/apps/<app>`); a one-shot build to the same folder races it. Detect a watcher before building:
+
+1. `ps -axo pid,tty,etime,command` for `nx build <app> --watch`, `nx run <app>:build --watch`, or `ng build <app> --watch`. On Windows: `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object CommandLine -match '--watch' | Select-Object ProcessId, CommandLine`, read for the same three patterns.
+2. `lsof -a -p <pid> -d cwd -Fn` must print the workspace root being verified. A watcher in another worktree does not count. Windows cannot report another process's working directory, so any matching watcher there means use the scratch build (`--output-path=dist/.verify/<app>`) below.
+3. The watched app must be the app that owns the change. Libs are covered through that app's build graph.
+
+With a matching watcher, take evidence from its artifacts, not from build output: the watcher's terminal is not readable, so no marker line is reachable. Require a file under the app's output path modified after the last edit of the changed source, and a token unique to this change (function name, string, test id) present in the emitted JS. Poll for up to about 90 seconds. Report that the evidence came from a running watcher's artifacts. Compile errors elsewhere in the app are invisible on this path.
+
+With no matching watcher, run the one-shot `nx build <app>` and use the marker evidence above.
+
+When a watcher matches but the token never appears, make no success claim. Run the one-shot build into a scratch folder so it cannot race the watcher, then delete the folder: `npx nx build <app> --skip-nx-cache --output-path=dist/.verify/<app>`.
+
+Two or more matching watchers on one app race on its output path. Report them. Never kill a watcher, and never start one: no `nx build --watch`, `nx watch`, or `nx serve`.
+
+## Failure footer without a diagnostic
+
+When a generic Nx failure footer has no visible compiler diagnostic, run `npx tsc -p <app-root>/tsconfig.app.json --noEmit` as a diagnostic only. Fix attributable TypeScript errors, then rerun the exact canonical Nx build. `tsc` does not replace that build. Hidden TypeScript errors are real defects.

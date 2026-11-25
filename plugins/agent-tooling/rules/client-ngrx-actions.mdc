@@ -1,0 +1,82 @@
+---
+description: "Use when adding or changing NgRx actions (`*.actions.ts`) in an Angular workspace."
+alwaysApply: false
+---
+
+# NgRx Action Conventions
+
+## Decision rule — answer this first
+
+Codebases that predate NgRx action creators often contain both class-based and creator-based actions.
+
+- **Creating a new file?** Creator-based API, always — even when every other file in the same `actions/` folder is class-based. Folder style never overrides this, and plans must not instruct class-based actions for new files.
+- **Adding to an existing file?** Inspect **that specific file** and match its style; nearby files and the surrounding feature area are irrelevant. Do not mix styles within a file. Migrating a file from class-based to creator-based is a deliberate refactor, not done incidentally when adding one action.
+
+```typescript
+// WRONG — new file in a class-based actions/ folder, copying its neighbors
+export class LoadWidgets implements Action { ... }
+
+// CORRECT — new files always use the creator-based API
+export const WidgetActions = createActionGroup({
+  source: 'My Feature / Widget',
+  events: { ... }
+});
+```
+
+## Net-new files — creator-based API
+
+Cohesive feature slices use `createActionGroup`:
+
+```typescript
+import { createActionGroup, emptyProps, props } from '@ngrx/store';
+
+import { Widget } from '../models/widget.model';
+
+export const WidgetActions = createActionGroup({
+  source: 'My Feature / Widget',
+  events: {
+    'Load Widget': props<{ widgetId: number }>(),
+    'Load Widget Success': props<{ widget: Widget }>(),
+    'Load Widget Error': emptyProps(),
+    'Reset Widget': emptyProps(),
+  },
+});
+```
+
+Standalone actions use `createAction`:
+
+```typescript
+export const loadCurrenciesSuccess = createAction(
+  '[My Feature / Settings] Load Currencies Success',
+  props<{ currencies: Currency[] }>()
+);
+```
+
+Source and type strings follow the app's existing naming, commonly `'Feature / Area'` for a group source and `'[Feature / Area] Verb Noun'` for a type. Keep each one unique: actions that share a type string trigger each other's reducers and effects. An async operation gets a request, a success and a failure action.
+
+## Failure action suffix
+
+Before adding a failure action, inspect the target file/app and actual consumers. Preserve the established `Error` or `Failure` suffix. A global error effect or meta-reducer may match on it, so search for `endsWith('Error')` and `endsWith('Failure')` before choosing. The examples above use `Error`. Do not rename existing application actions incidentally.
+
+## Actions barrel style
+
+An `actions/index.ts` re-exports flat or namespaced. Match the existing barrel; a new barrel matches the app's other actions barrels.
+
+```typescript
+export * from './widget-list.actions';
+export * from './widget-detail.actions';
+```
+
+```typescript
+export * as WidgetListActions from './widget-list.actions';
+export * as WidgetDetailActions from './widget-detail.actions';
+```
+
+Do not mix the two styles within the same `actions/index.ts`.
+
+## Both styles
+
+- Keep actions co-located with their feature slice — one file per domain area.
+- Export actions from the feature's `actions/index.ts` barrel.
+- Payload types: rule `client-models`.
+- Chained loads, optimistic writes, target or scope identity, request acceptance or rollback, pending records or in-flight counters: read `{CURSOR}/skills/client-ngrx-feature-slice/async-workflows.md`.

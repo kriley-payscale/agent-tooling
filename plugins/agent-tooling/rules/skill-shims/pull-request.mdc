@@ -1,0 +1,6 @@
+---
+description: "Use when pushing a feature branch and opening its GitHub pull request from the repository's PR template, or a linked set of PRs across repositories (for example an API and the client that calls it). Not for code review or merging."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/pull-request/SKILL.md` for the full step-by-step procedure.

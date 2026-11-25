@@ -1,0 +1,27 @@
+---
+description: "Use before any shell command, for shell syntax translation and the configured tool locations on this machine."
+alwaysApply: true
+---
+
+# Environment
+
+Shell fences in rules and skills use POSIX syntax. If the session shell is PowerShell, translate syntax only. Never change the command, its flags, or its arguments.
+
+In PowerShell on Windows, invoke `npm` and `npx` as `npm.cmd` and `npx.cmd`. This executable-name translation runs the same CLI without loading the `.ps1` launchers that execution policy can block. Keep the flags and arguments unchanged; do not change execution policy.
+
+| POSIX | PowerShell |
+|---|---|
+| `VAR=value cmd` | `$env:VAR='value'; cmd` |
+| `\` at line end | join into one line |
+| `/tmp/name`, `$TMPDIR/name` | `$env:TEMP\name` |
+| `name=$(cmd)` | `$name = cmd` |
+| `a && b` | run `a`; run `b` only if `a` exited 0 (Windows PowerShell 5.1 has no `&&`) |
+| `"<path>" args` | `& "<path>" args` |
+
+Windows PowerShell 5.1 strips `"` embedded in an argument to a native program, such as `'{"a":1}'`. Use the owning file's quote-free form. If it has none, report the step as not run.
+
+A POSIX-only tool with no PowerShell form in the owning rule or skill is not improvised. Report that step as not run.
+
+In a multi-root workspace the Grep tool can search every root regardless of its `path` argument. When scope matters, search with shell `rg`, `grep`, or `git grep` against an explicit path or commit, and treat Grep tool matches outside the requested path as noise, not evidence.
+
+Read executable paths from `AGENT_TOOLING_RUNTIME.tools`. Use the configured absolute paths, quoted when they contain spaces. A null or no-longer-runnable path is unavailable: stop only the operation requiring it and report it as not found or inaccessible, not necessarily uninstalled. A `ready` status means the workspace is configured; use `missingTools` and `warnings` for tool and role availability and remedies. Rerun `agent-tooling-setup` after installing or exposing tools; stale automatically discovered paths are refreshed using the configuration's `discoveredPaths` metadata. Manual overrides remain preserved even when inaccessible; correct these paths or set their configuration entries to null before setup to rediscover them. Do not guess a fallback or assume hook environment variables are inherited by shell commands.

@@ -1,0 +1,31 @@
+---
+description: "Use when adding, moving or sorting TypeScript imports in an Angular workspace."
+alwaysApply: false
+---
+
+# Import Block Order
+
+The workspace's ESLint import-ordering rule is authoritative: read `import/order` (or `simple-import-sort`) in `eslint.config.*` or `.eslintrc.json` and match its groups. When no rule enforces an order, match the file being edited and its siblings.
+
+A common layout, as blocks separated by a blank line:
+
+1. `@angular/*`
+2. Third-party packages in one block: `@ngrx/*`, `rxjs`, `rxjs/operators`, `@progress/*` and the rest
+3. Workspace path aliases (the `paths` in `tsconfig.base.json`)
+4. Relative parent, sibling, and index imports (`../`, `./`)
+
+```typescript
+import { Component } from '@angular/core';
+
+import { Store } from '@ngrx/store';
+import { GridDataResult } from '@progress/kendo-angular-grid';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+import { Widget } from '@myorg/models';
+
+import { WidgetActions } from '../../actions';
+import { WidgetPageComponent } from './widget.page';
+```
+
+Do not alphabetize within a block unless the configured rule does.

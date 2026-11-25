@@ -1,0 +1,6 @@
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.env
+agent-tooling.local.json

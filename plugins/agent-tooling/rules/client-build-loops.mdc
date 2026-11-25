@@ -1,0 +1,87 @@
+---
+description: "Use when running tests, lint or tsc type-checks in an Angular workspace (Nx, Jest), reading their results, running a permitted worker self-check, or restoring node_modules from the lockfile. Nx builds use client-nx-builds."
+alwaysApply: false
+---
+
+# Client Build and Test Evidence
+
+Run client verification from `{CLIENT}`. Never infer success from a generic Nx footer. The commands assume Nx with Jest; in an Angular CLI workspace, run the matching `ng` target and hold it to the same evidence bar.
+
+This rule owns verification commands and evidence; it does not grant workers permission to run checks.
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| Running `nx build`, reading its result, or a build fails without a visible diagnostic | rule `client-nx-builds` |
+
+## Preflight
+
+When implementing application code in an inherited dirty checkout, run the applicable focused tests before editing and record pre-existing failures for comparison with final verification. Documentation-only tooling edits do not require application builds or tests.
+
+`NX Could not find Nx modules` means `node_modules` is missing or empty. It is an environment state, not a build or test failure. Restore it with the package manager the committed lockfile names (`npm ci`, `pnpm install --frozen-lockfile`, `yarn install --immutable`, or `--frozen-lockfile` on Yarn 1), under a Node version the repo's Angular release supports; when the `PATH` node is newer than supported, switch with nvm first. Never create or update a lockfile to get past a failed install.
+
+If the install returns E401 or E403 from a private registry, report it as a credential blocker and stop. Do not edit registry configuration (`.npmrc`, `.yarnrc.yml`) or `package.json`, and do not substitute another account's token. Run static import and boundary checks meanwhile, and report the Nx builds and tests as not run.
+
+## Client process capacity
+
+Run one client verification command at a time. During Build of an approved plan, the Lead
+starts compilation, type-checks, lint or tests only while no client worker is
+active in that checkout (`implement-plan` Admission); a worker runs only
+the checks its dispatch permits. Read-only discovery does not start these
+processes. Preserve external watchers and follow the watcher procedure
+in rule `client-nx-builds`; never increase memory limits or kill processes merely to bypass the queue.
+
+## Worker self-check
+
+Use only when the dispatch grants `Self-check: allowed` under
+`{CURSOR}/skills/implement-plan/implementation-contract.md`. From
+`{CLIENT}`, type-check the task's project:
+
+```bash
+npx tsc -p <project>/tsconfig.app.json --noEmit
+```
+
+When the task owns specs, also type-check `<project>/tsconfig.spec.json` the same way, with the module flag from Spec type-check when it applies.
+
+The shared contract owns correction limits, reporting, and check permissions.
+These diagnostics do not replace the Lead's required verification or grant
+permission to run Nx builds or tests.
+
+## Nx tests
+
+Require named passing suite/test evidence. When the run covers a spec that was just written or edited, pass `--skip-nx-cache`; a result replayed from the local Nx cache is not fresh evidence. When focusing tests on Jest 30 or later, use the plural `--testPathPatterns` or an exact `--testFile`; the singular `--testPathPattern` is ignored there and runs the whole project as false filtered evidence.
+
+For one exact edited suite:
+
+```bash
+npx nx test <project> --testFile=<repo-relative-spec> --skip-nx-cache
+```
+
+For several exact files, direct Jest is allowed when the task records the project's own config; direct Jest does not use the Nx cache:
+
+```bash
+npx jest --config <project>/jest.config.js <repo-relative-spec-1> <repo-relative-spec-2>
+```
+
+A focused `nx test` run that prints `NX Successfully ran target test` with no Jest `Tests:` summary line in the ANSI-stripped output ran zero suites. That is not passing evidence. Require a `Tests: N passed` line with N greater than zero, and a suite count that matches the intended filter.
+
+`--testPathPatterns` is a regular expression, so a `.` in a file name matches any character: `foo.reducer` also matches `foo/reducers/...` and runs every suite in that folder. Escape the dot (`foo\.reducer`) or include enough of the path that only the intended file matches, then confirm the suite count. If a regex with groups or alternation is needed, confirm the suite count once before relying on it in scripted or repeated runs.
+
+When `nx test` output is captured to a file and then filtered for `Tests:` or `Test Suites:`, strip ANSI codes first, for example `sed 's/\x1b\[[0-9;]*m//g' <file> | rg "^Tests:|^Test Suites:"`. In PowerShell: `(Get-Content <file>) -replace '\x1b\[[0-9;]*m','' | Select-String '^Tests:|^Test Suites:'`. Setting `NO_COLOR=1 FORCE_COLOR=0` does not remove Jest's summary colors under Nx. An empty match on a zero-exit run means the marker was not found, not that zero suites ran. Strip the codes and filter again; do not rerun the tests.
+
+When `nx test <project>` stops before Jest with `NX The following outputs are invalid` (an `outputs` entry that does not start with `{workspaceRoot}/` or `{projectRoot}/`), the project configuration is rejected. That is repository state, not a test failure. Do not edit `project.json` to get past it unless the task owns that file. Run the suite with Jest directly against the project's own config from the workspace root, for example `npx jest --config <project>/jest.config.js <repo-relative-spec>`. Apply the same evidence bar as above: an ANSI-stripped `Tests: N passed` with N greater than zero and the intended suite count. Report that the Nx target could not run.
+
+A trailing Nx Cloud 401 is cache noise, not a local verification failure, only after the local suite and tests are shown as passing.
+
+## Spec type-check
+
+When Jest only transpiles specs (ts-jest with `isolatedModules`, or an swc or esbuild transformer; check the project's `jest.config`), spec files are never type-checked, and `nx build` skips them too. A spec that calls `.projector` on a selector the barrel does not export then fails only at runtime (`Cannot read properties of undefined`), and a fixture missing a required model field never fails.
+
+When a change adds a required field to a shared model, or removes or renames exported selectors or actions, type-check the specs with `npx tsc -p <project>/tsconfig.spec.json --noEmit`, filtered to the touched folder, and compare against a pre-change baseline.
+
+If that fails at once with TS5095, the spec tsconfig sets `module: commonjs` under a base `moduleResolution: bundler`; add `--module esnext`.
+
+## Lint
+
+Prefer the project's lint target. For file-scoped lint with ESLint 9 in a workspace that still has only `.eslintrc.json` and no `eslint.config.*`, `npx eslint <files>` exits 2 with "couldn't find an eslint.config"; run it as `ESLINT_USE_FLAT_CONFIG=false npx eslint <files>`. In zsh, pass a multi-line file list through `xargs`, because an unquoted `$files` is not word-split.

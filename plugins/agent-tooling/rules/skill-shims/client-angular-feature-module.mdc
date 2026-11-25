@@ -1,0 +1,6 @@
+---
+description: "Use when adding a new lazy-loaded Angular feature module or standalone feature route with its own top-level route and NgRx feature registration. Existing routes or slices use their own rules and skills."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/client-angular-feature-module/SKILL.md` as the compact router. Select only its references applicable to the changed behavior; do not load every topic.

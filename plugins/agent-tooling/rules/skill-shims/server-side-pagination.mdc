@@ -1,0 +1,6 @@
+---
+description: "Use when implementing Kendo Grid server-side paging, sorting, filtering or total counts (DataStateChangeEvent, GridDataResult, State, sort and filter descriptors), or an API endpoint that pages, sorts or filters rows for a grid. Not client-paged row indices or visual-only Grid changes."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/server-side-pagination/SKILL.md` for the cross-layer orchestration checklist.

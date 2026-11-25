@@ -1,0 +1,6 @@
+---
+description: "Use when changing per-item repository calls, post-materialization filtering, sorting or paging, id-list restrictions, complex joins, correlated subqueries, shared IQueryable extracts or server paging, or when investigating slow EF reads or translation. Simple lookups and projections skip it unless slow."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/dotnet-ef-query-optimization/SKILL.md` for the full step-by-step procedure.

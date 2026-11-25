@@ -1,0 +1,36 @@
+---
+description: "Use when creating or editing C# files, when a type or extension method will not resolve, or when a refactor removes a dependency or using directive."
+alwaysApply: false
+---
+
+# C# `using` directive resolution
+
+The editor does not type-check C# as you write. Resolve `using` directives before generating code; `dotnet build` is not a substitute for getting them right on the first pass. For `.cs` files these rules are stricter than the general sibling read in rule `read-before-write`.
+
+When a type or method cannot be found, look first for a missing or incorrect `using`: the wrong namespace, a missing `using static`, or an extension method declared in a different namespace from the type it extends.
+
+## Read a sibling file first
+
+Before writing a new `.cs` file or making substantial edits to an existing one, read at least one same-folder file of the same kind (test class, service, controller, repository) to establish the `using` baseline. Do not skip this even when the task looks simple; test files in particular share a large common using set. A namespace imported by `global using` (a `GlobalUsings.cs` file, `<Using>` items or `<ImplicitUsings>` in the `.csproj`) needs no directive, so a sibling can compile without one.
+
+## Never remove a `using` without grepping for remaining references
+
+When a refactor removes a dependency, splits a class or cleans up imports, grep the file for every identifier that could come from that namespace before removing its `using`. If any remain, keep it. A removed constructor parameter's type often still appears in field declarations, mocks and assertions, and other types from the same namespace may still be in use.
+
+## Find where a type is defined before using it
+
+The `namespace` at the top of the defining file is exactly what goes in the `using` directive.
+
+- **Nested types.** A plain `using` for the outer namespace does not expose a type nested in a class. Qualify it (`OuterClass.NestedType`) or add `using static Namespace.OuterClass;`. An enum `WidgetKind` nested in `WidgetConstants` needs `using static MyApp.Models.Widgets.WidgetConstants;`.
+- **Parent and child namespaces.** Each needs its own `using`. A file that uses `IWidgetRepository` from `MyApp.Data.Repositories` and `IOrderRepository` from `MyApp.Data.Repositories.Ordering` needs both directives.
+- **Extension methods.** The `using` names the namespace of the static class that declares the method, not the type being extended. Search the codebase for `public static ... MethodName(this TypeName` to find it.
+- **Ambiguous short names.** When two namespaces define the same type name, use the fully qualified name (`MyApp.Models.Reports.Report`) or an alias (`using Report = MyApp.Models.Reports.Report;`).
+
+## Commonly missed framework `using`s
+
+| Type or feature | Required `using` |
+|---|---|
+| `.ToListAsync()`, `.FirstOrDefaultAsync()`, `.Include()`, `.ExecuteUpdateAsync()` and other EF Core operators | `using Microsoft.EntityFrameworkCore;` |
+| `ILogger<T>` | `using Microsoft.Extensions.Logging;` |
+| `IOptions<T>` | `using Microsoft.Extensions.Options;` |
+| `SqlParameter` passed to EF Core | `using Microsoft.Data.SqlClient;` — a `System.Data.SqlClient.SqlParameter` compiles and throws `InvalidCastException` at run time |

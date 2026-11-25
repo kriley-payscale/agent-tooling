@@ -1,0 +1,35 @@
+---
+description: "Use when planning or implementing repository changes, executing an approved plan, or finding work outside the requested scope. Use before adding a project, app or library, a database table, a breaking schema change, a message queue, topic or other shared infrastructure, a feature flag key, or a third-party npm or NuGet package."
+alwaysApply: false
+---
+
+# Scope Creep Gate
+
+## Approved plan execution
+
+An explicitly requested plan or task is prior approval for its enumerated files, layers, and risks. Do not re-gate that listed scope.
+
+Required plan bookkeeping, handoff memory, and summary artifacts do not count as new implementation scope. Explicit read-only requests still prohibit writes.
+
+Re-gate only when execution discovers:
+- a material file, layer, or concern outside the approved plan;
+- a breaking contract not disclosed by the plan;
+- new infrastructure listed below that was not explicitly approved.
+
+Record minor in-feature substitutions as deviations instead of requesting approval again. Build of an approved plan is the exception: the "Plan fidelity" section of rule `plan-task-schema` overrides this allowance.
+
+## Unplanned work
+
+If no approved plan applies and the task grows beyond what was asked (more files, another layer, or changes nobody requested), stop and state the scope before continuing.
+
+## Stop before creating new infrastructure
+
+The following require explicit user approval before proceeding — do not assume they are in scope:
+
+- New project, app or library: a `.csproj` or other project file, or an Angular app or library
+- New database table or breaking schema change (column drop, type change, rename)
+- New message queue, topic or other shared infrastructure
+- New feature flag key
+- New dependency on a third-party NuGet package or npm package not already in the solution
+
+Present the need, explain why it's required, and wait for the user to confirm before creating it.

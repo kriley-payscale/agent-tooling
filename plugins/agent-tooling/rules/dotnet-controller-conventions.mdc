@@ -1,0 +1,97 @@
+---
+description: "Use when creating, porting or changing ASP.NET Core API controllers or action methods (Controllers/*.cs), including the base class, parameter binding, request validation, tenant and user identity, OData actions, Delta PATCH and authorization attributes."
+alwaysApply: false
+---
+
+# .NET Controller Patterns
+
+The procedure for creating or porting a controller is skill `dotnet-controller`. Examples write the codebase's current-user accessor as `CurrentUser`.
+
+## Base class — the codebase's controller base
+
+Read a recent sibling controller and the class it inherits. If that is a codebase base class rather than `ControllerBase`, new controllers inherit it and do not re-add what it declares: typically `[ApiController]`, `[Route]`, `[Authorize]` and the current-user accessor. When a base is kept only for legacy controllers, such as a separate OData base, do not use it for new code. With no codebase base, derive from `ControllerBase` and declare `[ApiController]` and `[Route]`.
+
+Match the siblings' constructor shape, field naming and member layout, including any `#region` blocks.
+
+```csharp
+[HttpGet]
+public async Task<IActionResult> GetWidget([FromQuery] int id)
+{
+    return Ok(await _widgetService.GetAsync(id, CurrentUser.TenantId));
+}
+```
+
+Return `Ok(...)` when the service returns the payload itself. When the service returns the codebase's result type, pass it to the codebase's result-to-response helper; rule `dotnet-error-handling` owns when a service returns one and how each error maps to a status.
+
+## Request validation — rely on `[ApiController]`
+
+When the controller carries `[ApiController]` (directly, through its base, or as `[assembly: ApiController]`), ASP.NET Core returns `400` for model-binding and DataAnnotations failures before the action or service call runs, unless the host sets `ApiBehaviorOptions.SuppressModelStateInvalidFilter = true` (`rg -n "SuppressModelStateInvalidFilter" {DOTNET}`). With the filter suppressed, keep the `ModelState` checks siblings make. Otherwise do not add a redundant guard solely for those failures:
+
+```csharp
+// correct
+return Ok(await _widgetService.CreateAsync(request));
+
+// redundant
+if (!ModelState.IsValid) return BadRequest("Invalid Request");
+return Ok(await _widgetService.CreateAsync(request));
+```
+
+Do not move validation into a result-to-response helper: in `Helper(await service.CallAsync())`, the service call completes before the helper runs.
+
+An action must check `ModelState` only when the action itself adds errors after pipeline validation. Test the automatic behavior through a hosted MVC test when its exact response is an endpoint contract; direct controller calls bypass model binding and action filters, so they cannot prove it.
+
+## Binding sources on action parameters
+
+Declare binding sources the way sibling actions do. When siblings declare them explicitly, every parameter bound from an HTTP request declares its source:
+
+| Request source | Attribute |
+|---|---|
+| Query string | `[FromQuery]` |
+| JSON request body | `[FromBody]` |
+| A `{parameter}` in the action route template | `[FromRoute]` |
+| Multipart form field or file | `[FromForm]` |
+| OData URI | `[FromODataUri]` |
+
+Use the attribute that matches the endpoint contract regardless of the HTTP verb or action name. Parameterless actions and actions that read `Request` directly have no parameter to annotate. When the repo uses OData, `ODataActionParameters` remains the container for custom actions.
+
+## Tenant and user identity — from the authenticated context
+
+Take tenant and user IDs from the authenticated request, through the accessor siblings use (a base-class property, an injected current-user service, or `User` claims), never from route, query or body parameters. Do not parse claims or headers by hand in the action. The exception is an action whose authorization restricts it to callers allowed to act across tenants, such as a system-administrator policy; it may take the target `tenantId` as a parameter.
+
+## OData PATCH — Delta\<T\>
+
+When the repo uses OData:
+
+```csharp
+[HttpPatch]
+public async Task<IActionResult> Patch([FromODataUri] int key, Delta<WidgetDto> patch)
+{
+    var dto = await _widgetService.GetByIdAsync(key, CurrentUser.TenantId);
+    if (dto == null) return NotFound();
+
+    patch.Patch(dto);
+    await _widgetService.UpdateAsync(dto, CurrentUser.UserId);
+    return Updated(dto);
+}
+```
+
+Pass the acting user to the service. Never set audit columns in a controller (rule `dotnet-audit-fields`).
+
+## Bulk / custom actions — ODataActionParameters
+
+```csharp
+[HttpPost]
+public IActionResult ProcessBatch(ODataActionParameters parameters)
+{
+    var ids = (IEnumerable<int>)parameters["WidgetIds"];
+    return Ok(_widgetService.ProcessBatch(CurrentUser.UserId, ids));
+}
+```
+
+Parameter keys must match names registered in the controller's OData EDM config (if one exists).
+
+## Authorization — declarative, not inline
+
+Enforce permissions with the mechanism sibling controllers use: `[Authorize(Policy = ...)]` with ASP.NET Core policies, or the codebase's own authorization attribute or filter (read the attributes on sibling controllers; search for `IAuthorizationFilter`, `IAsyncAuthorizationFilter` and `AuthorizationHandler<`). Put it on the class when every action needs the same permission, and on each method in a mixed-permission controller. Do not implement permission logic inline in action bodies.
+
+Reuse the codebase's existing filter attributes for other gates, such as feature flags or tenant settings, instead of checking them in the action.

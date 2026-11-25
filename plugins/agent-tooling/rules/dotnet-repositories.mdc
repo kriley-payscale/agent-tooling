@@ -1,0 +1,135 @@
+---
+description: "Use when adding or changing .NET repositories or service data access, including the generic repository versus typed, read-only or per-call repositories, SaveChanges ownership, transactions, bulk writes and cache decorators."
+alwaysApply: false
+---
+
+# .NET Repository Conventions
+
+Examples write the codebase's generic repository as `IRepository<T>`; use its real name and methods.
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| Choosing between the generic, read-only and per-call repositories, or writing a repository read or write | skill `dotnet-data-access` |
+| Code that awaits a repository or EF call per item, filters, sorts or pages an already-materialized result, restricts by an id or access list, joins three or more `DbSet`s, left-joins with unproven uniqueness, embeds a correlated subquery, extracts a shared `IQueryable`, or pages server-side | skill `dotnet-ef-query-optimization` |
+| Adding a cache decorator, or a method to an interface that already has a decorator | rule `dotnet-decorators` |
+
+## Default to the generic repository
+
+If the codebase registers a generic repository as an open generic (`rg -n -F "Repository<>)" {DOTNET} -g '*.cs'` finds the registration), services inject it directly for any mapped entity, with no new interface, implementation or DI entry. Do not create a feature-specific repository just to wrap basic CRUD it already provides. Read-only and per-call variants, if the codebase has them, are chosen per skill `dotnet-data-access`.
+
+Without a generic repository, follow the data-access pattern sibling services use; do not introduce one.
+
+```csharp
+public class WidgetService(IRepository<Widget> widgetRepository) : IWidgetService
+{
+    public Task<Widget> GetAsync(int id) => widgetRepository.GetByIdAsync(id);
+}
+```
+
+## Constructor shape for net-new repository files
+
+Match the constructor shape of sibling repositories, query facades and cache decorators (primary constructor or classic `private readonly` fields). Do not convert existing ones.
+
+- In a primary constructor, do not name the DbContext parameter `context` when methods declare a local named `context`. The local silently shadows the injected context in that method, with no warning, and a block that reads the injected `context` before declaring the local fails with CS0841.
+- Mutable non-DI state, such as a per-request cache, is a field, not a constructor parameter.
+
+## Feature repository — only when domain-specific queries are needed
+
+Create `IWidgetRepository` only when the access pattern requires stored procedure calls, complex multi-table joins returning non-entity projections, raw SQL, or cross-DbContext access. Otherwise a domain-specific repository is boilerplate; default to the generic.
+
+Two shapes are valid:
+
+1. **Typed repository that extends the generic interface** — extra query methods on top of generic CRUD for a primary entity.
+2. **Query facade over the DbContext** — public reads return DTOs, it does **not** extend the generic interface, and it injects the generic repository internally for the entities it writes. Do not convert an existing facade to shape 1 just to match.
+
+```csharp
+public interface IWidgetRepository : IRepository<Widget>
+{
+    Task<IEnumerable<WidgetDto>> GetByTenantAsync(int tenantId);
+    Task<bool> ExistsAsync(string name, int tenantId);
+}
+```
+
+For a simple single-entity read in a service, filter, order, project and materialize through the generic repository's `IQueryable`, following skill `dotnet-data-access`. Keep raw SQL, multi-table joins and complex domain queries inside a specialized repository; services call its interface.
+
+Do not add public domain-repository methods returning `IQueryable<T>`; the generic repository's query API remains available for service reads. A private `IQueryable` (or nested row type) shared by two methods in the same class is the default extract for duplicated joins. Do not promote that query across repositories until the row grain matches.
+
+**Query stop.** The Guidance map row for skill `dotnet-ef-query-optimization` is a stop: open the skill before writing or changing that code.
+
+## No DbContext in a service when repositories own data access
+
+When the codebase routes data access through repositories, a service never declares or creates a DbContext; it goes through a repository.
+
+## Reads that wait behind writes
+
+When a read waits behind or escalates under large writes, use a read path that does not wait on writers before batching, plan hints or indexes, if the codebase has one:
+
+- a read-only repository or context on a readable secondary, for reads that can miss a recent write (skill `dotnet-data-access`, Choosing a repository type);
+- a dirty-read helper on the primary where dirty reads are acceptable. Call it in the read method itself, even one writes reuse, with no isolation flag or committed twin.
+
+A helper that switches isolation with `SET TRANSACTION ISOLATION LEVEL` leaves it set for the rest of the session's open transaction, so a write calls such reads before beginning its transaction.
+
+## Where writes and SaveChanges live
+
+The DbContext is scoped per request. One `SaveChanges` flushes every tracked entity, regardless of which repository you call it through. Await repository calls sequentially; rule `dotnet-async-hygiene` owns the ban on overlapping work against the shared context.
+
+**Lone entity, no specialized repo** — the service injects the generic repository, mutates, and saves once:
+
+```csharp
+_widgetRepository.Add(widget);
+_auditRepository.Add(auditEntry);
+await _widgetRepository.SaveChangesAsync();
+```
+
+**Specialized repository already exists** for the aggregate (joins/projections, or it already injects the generic repository for those entities) — the service validates and maps the request, then calls **one** specialized write method. That method mutates through its injected generic repositories and **saves once**. The service must not also inject the generic repository for those same entities to perform the write, and must not read a DTO from the specialized repository and then write the same aggregate through its own generic repository.
+
+Public specialized-repo write methods persist. Do not add a `WithoutSave` suffix for a single-aggregate update. If the service mutated other tracked entities (for example a parent entity's name or status) before the call, they flush with that save.
+
+**Multi-aggregate operations** (for example settings plus an upload plus its rows) — when the writes must succeed or fail together, the service begins a transaction. Specialized methods that save enlist in it; rollback still covers earlier flushes. Otherwise let each statement commit alone, ordered so an interruption leaves a state the next run can recover from. Do not invent a public stage-only contract unless you are extending an established sibling unit of work in that same feature.
+
+DTOs may cross the repository boundary. Do not introduce a public handle, context or session that captures tracked EF entities between repository calls; avoiding a tracked re-query does not justify coupling a public contract to scoped `DbContext` state. If no established pattern fits, surface the proposed architecture and trade-offs for explicit approval before implementing it.
+
+## Bulk operations for large sets
+
+When the codebase has bulk methods (EFCore.BulkExtensions, or a wrapper on the generic repository), use them for collections larger than ~50 rows. Do not loop individual inserts.
+
+Never bulk-insert inside a transaction that has already written rows when the bulk path checks foreign keys (`SqlBulkCopyOptions.CheckConstraints`, or a staged `MERGE` such as EFCore.BulkExtensions with `SetOutputIdentity`). The check can scan the whole parent table, every tenant's rows, so two such transactions deadlock, even across tenants. Commit the parent rows first, then bulk-insert the children outside any transaction.
+
+A plain `SqlBulkCopy`, the library default, checks no foreign keys and leaves them untrusted, which lets orphan rows in and stops the optimizer relying on them. Check `sys.foreign_keys.is_not_trusted` after such a load.
+
+## Transactions for multi-entity atomic writes
+
+**The service owns the unit of work.** It begins the transaction and flushes through an injected generic repository.
+
+Do not add `BeginTransaction`, `BeginTransactionAsync`, or a public `SaveChangesAsync` to a specialized repository or query-facade interface. Those wrappers put transaction control behind a query contract and give two owners to one unit of work.
+
+- Begin it through the API the existing transactional writes use, at the isolation level they use (normally `ReadCommitted`), at every call site. Do not add a second begin method to the generic repository.
+- To keep concurrent writers to one aggregate from colliding, take an application lock (`sp_getapplock`) keyed to that aggregate; do not raise the isolation level.
+- Take the lock through one injectable lock component that owns the resource name, timeout and busy result, not from a feature data repository. Reuse an existing one (search for `sp_getapplock`) before copying the lock SQL.
+
+```csharp
+await using var transaction = _widgetRepository.BeginTransaction(IsolationLevel.ReadCommitted);
+try
+{
+    _widgetRepository.Add(widget);
+    _partRepository.Update(part);
+    await _widgetRepository.SaveChangesAsync();
+
+    await _orderRepository.UpdateOrderAsync(request);  // specialized method saves internally
+
+    await transaction.CommitAsync();
+}
+catch
+{
+    await transaction.RollbackAsync();
+    throw;
+}
+```
+
+Facade write methods may still call `SaveChangesAsync` on their own context. When the facade and the generic repository share the request's DbContext instance, those flushes enlist in the service's transaction, and rollback still covers them.
+
+## Caching belongs in a decorator, not the repository
+
+Do not call the cache inside repository implementations; the repository never knows about the cache. Rule `dotnet-decorators` owns the cache decorator pattern, its key format and its registration.

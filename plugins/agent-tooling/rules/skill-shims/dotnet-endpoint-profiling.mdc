@@ -1,0 +1,6 @@
+---
+description: "Use when measuring local API request latency before and after an optimization, capturing a baseline, attributing wall time to SQL versus .NET, enabling EF Core command logging, comparing warm endpoint timings, diagnosing a large wall-minus-logged-SQL residual, or adding and removing in-code phase probes."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/dotnet-endpoint-profiling/SKILL.md` for the full procedure.

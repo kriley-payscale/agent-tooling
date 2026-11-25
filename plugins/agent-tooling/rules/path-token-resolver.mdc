@@ -1,0 +1,30 @@
+---
+description: "Use before any file or shell tool call that needs a tooling, workspace, role or artifact path, to resolve brace tokens from runtime context."
+alwaysApply: true
+---
+
+# Path tokens
+
+Use the `AGENT_TOOLING_RUNTIME` snapshot from the startup hook, synchronous resolver, or parent dispatch as the authority. Its `paths` give each token's absolute path:
+
+| Token | Path |
+|---|---|
+| `{CURSOR}` | The installed tooling root |
+| `{WORKSPACE}` | The configured workspace root, the folder that holds the repositories |
+| `{ARTIFACTS}` | `{WORKSPACE}/.cursor/agent-tooling` |
+| `{CLIENT}` | The Angular workspace: the folder with `angular.json` or `nx.json` |
+| `{DOTNET}` | The folder with the .NET solution, or its project when there is no solution |
+| `{SQL}` | The folder with a database schema source kept apart from the .NET code; EF Core migrations and migration scripts inside `{DOTNET}` belong to `{DOTNET}` |
+| `{TILT}` | The folder with the root `Tiltfile` |
+
+A role token (`{CLIENT}`, `{DOTNET}`, `{SQL}`, `{TILT}`) exists only when that role is configured and its folder exists. Several roles can share one repository. Resolve brace tokens before file or shell tool calls, quote shell paths, and preserve tokens in portable tooling content. These are instruction-level substitutions, not shell environment variables.
+
+When status is `setup-required` or `error`, only setup and configuration diagnosis may proceed. Invoke the `agent-tooling-setup` command or report the supplied error; never infer the workspace from the plugin install location or the first workspace folder. Missing tools and absent role tokens block only operations requiring them; report a step that needs one as not run.
+
+If no valid snapshot was supplied or configuration changed, synchronously run `node "<installed plugin root>/scripts/runtime.mjs" resolve --workspace "<workspace root>"`, repeating `--workspace` for a multi-root workspace. Locate the script from the actual plugin/rule path supplied by Cursor, never a guessed path. Use the returned ready configuration before continuing. Pass the ready runtime snapshot explicitly to workers, including its status, paths and tool locations; do not assume they inherit startup context. A worker in a temporary worktree uses the parent's supplied workspace configuration rather than attempting setup in that worktree.
+
+Keep installed tooling read-only during ordinary workflows. All generated planning, QA and code-review files go under `{ARTIFACTS}`; do not write them beneath `{CURSOR}`. Create only directories needed by the current artifact. User-requested edits to the plugin source belong in its repository.
+
+Any other brace token used as a path root: stop and report it instead of guessing.
+
+Guidance names a rule as rule `<name>`, meaning `{CURSOR}/rules/<name>.mdc`, and a skill as skill `<name>`, meaning `{CURSOR}/skills/<name>/SKILL.md`.

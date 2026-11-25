@@ -1,0 +1,6 @@
+---
+description: "Use when planning, adding, changing, removing or reviewing unit tests: .NET test projects (NUnit, NSubstitute, EF Core fixtures) or Angular *.spec.ts files (Jest, TestBed, NgRx, Kendo), or deciding whether a behavior change needs a test."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/unit-test-guidance/SKILL.md` for the full step-by-step procedure.

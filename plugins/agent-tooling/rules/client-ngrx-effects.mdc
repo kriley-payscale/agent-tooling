@@ -1,0 +1,120 @@
+---
+description: "Use when adding or changing NgRx effects (`*.effects.ts`) in an Angular workspace, including API calls, failure actions, navigation and notifications."
+alwaysApply: false
+---
+
+# NgRx Effects Conventions
+
+## Effect class structure
+
+- **Creating a new effects file?** Filter and dispatch creator-based actions, as below, even when sibling effects files use class-based actions. The one exception is a new effects file that consumes an existing class-based actions file: it uses that file's classes.
+- **Adding to an existing file?** Match that file. A file that uses `new WidgetDetailActions.LoadWidgetDetailSuccess(widget)` and string constants keeps them. Do not mix styles within a file or migrate it incidentally.
+
+Inject `Actions`, `Store` and services with `inject()`, not constructor injection. Declare every effect with `createEffect()`.
+
+```typescript
+import { inject, Injectable } from '@angular/core';
+
+import { Actions, createEffect, ofType } from '@ngrx/effects';
+import { Action, Store } from '@ngrx/store';
+import { Observable, of } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
+
+import { WidgetApiService } from '@myorg/data';
+
+import * as fromReducer from '../reducers';
+import { WidgetActions } from '../actions';
+
+@Injectable()
+export class WidgetEffects {
+  private actions$ = inject(Actions);
+  private store = inject<Store<fromReducer.State>>(Store);
+  private widgetApiService = inject(WidgetApiService);
+
+  loadWidget$: Observable<Action> = createEffect(() =>
+    this.actions$.pipe(
+      ofType(WidgetActions.loadWidget),
+      switchMap(({ widgetId }) =>
+        this.widgetApiService.getWidget(widgetId).pipe(
+          map((widget) => WidgetActions.loadWidgetSuccess({ widget })),
+          catchError(() => of(WidgetActions.loadWidgetError()))
+        )
+      )
+    )
+  );
+}
+```
+
+## API calls — through API services only
+
+All HTTP/API calls go through the domain API services of rule `client-data-api-service`, imported through their library alias. Never use raw `HttpClient` in effects. Never use deep relative paths into the libs folder.
+
+```typescript
+// correct
+import { WidgetApiService } from '@myorg/data';
+
+// wrong — deep libs path
+import { WidgetApiService } from '../../../../libs/data/widget/widget-api.service';
+
+// wrong — raw HttpClient
+private http = inject(HttpClient);
+```
+
+New or changed API methods, routes, DTO casing or response mapping follow rule `client-data-api-service`. Effects consume the shape that service declares; do not normalize payloads in effects.
+
+## Failure handling
+
+Every effect that can fail must have a `catchError` branch that dispatches a failure action. Never swallow errors silently.
+
+- Failure action name: rule `client-ngrx-actions` (failure action suffix) decides `Error` or `Failure`. Preserve existing action contracts.
+- Keep `catchError` on the inner API call, including async exports, so the effect survives a failure.
+- When the established failure contract exposes a server-provided reason, pass it through; do not replace it unconditionally with a generic message.
+
+For a hard navigation error (e.g. resource not found), navigate first, then dispatch:
+
+```typescript
+catchError(() => {
+  this.router.navigate(['/not-found']);
+  return of(WidgetActions.loadWidgetError());
+})
+```
+
+When an effect calls `Router.navigate` or `Router.navigateByUrl`, build the path per skill `client-angular-route`: Router paths are relative to the app's base href.
+
+## Operator selection
+
+| Use case | Operator |
+|----------|----------|
+| Data fetch, navigation, read | `switchMap` — cancels in-flight on new trigger |
+| Sequential writes/mutations | `concatMap` — queues, preserves order |
+| Parallel independent calls | `mergeMap` |
+| Store reads alongside action | `withLatestFrom` |
+
+## Mutation writes
+
+One `ofType` per mutation effect. Do not listen to two write actions and branch with `'request' in action` or a discriminated context union.
+
+POST the existing request DTO from the API-model library (rule `client-models`), or assemble UI-shaped action props into that DTO. Do not wrap the DTO in an envelope such as `{ id, request }`. Key any in-flight `Set` on a field the DTO already has.
+
+For chained loads, optimistic writes, target or scope identity, request acceptance or rollback, pending records or in-flight counters, read `{CURSOR}/skills/client-ngrx-feature-slice/async-workflows.md`.
+
+## Side-effect-only effects
+
+Effects that only produce side effects (navigation, toast notifications, logging) must set `{ dispatch: false }`.
+
+```typescript
+navigateToNotFound$: Observable<void> = createEffect(
+  () =>
+    this.actions$.pipe(
+      ofType(SomeActions.RESOURCE_NOT_FOUND),
+      tap(() => this.router.navigate(['/not-found']))
+    ),
+  { dispatch: false }
+);
+```
+
+## Toast notifications
+
+Raise toasts through the codebase's existing notification action or service. Do not introduce an app-wide notification factory; feature-local helpers are fine.
+
+When the toast renders through ngx-toastr and the message passes through an HTML formatter, hardcode `enableHtml: true` rather than adding a parameter for it; with `false`, ngx-toastr shows the formatter's tags as literal text.

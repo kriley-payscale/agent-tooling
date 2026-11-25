@@ -1,0 +1,6 @@
+---
+description: "Use when reviewing a GitHub pull request (a URL or owner/repo#n) in an Angular, ASP.NET Core or SQL Server codebase for verified defects, convention violations and contract mismatches between layers. Each PR gets its own independent review."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/pr-review/SKILL.md` for the full procedure.

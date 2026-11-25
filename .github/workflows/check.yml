@@ -1,0 +1,21 @@
+name: Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node plugins/agent-tooling/scripts/check-guidance.mjs
+      - run: node --test "plugins/agent-tooling/**/*.test.mjs"

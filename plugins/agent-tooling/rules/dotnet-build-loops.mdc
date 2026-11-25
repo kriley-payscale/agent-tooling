@@ -1,0 +1,57 @@
+---
+description: "Use when running dotnet build, test or restore for the .NET solution. A failing build or test uses dotnet-build-failures."
+alwaysApply: false
+---
+
+# .NET Build and Test Protocol
+
+Run .NET verification from `{DOTNET}`. In Cursor, run it outside the sandbox: the sandbox blocks NuGet endpoints and can hang indefinitely at `Determining projects to restore...`.
+
+Use `dotnet` on `PATH`. If `dotnet` is not found, use the path in `environment-resolver`.
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| A dotnet build or test fails, hangs or leaves processes behind | rule `dotnet-build-failures` |
+
+## Command constraints
+
+- Never pipe or redirect `dotnet` output, except the one truncated-output rerun in rule `dotnet-build-failures`.
+- Never pass verbosity flags.
+- Do not build a large solution whole to verify a change; build the projects under Compilation check.
+- Build after a coherent source change, before testing. Re-running the same tests without source changes may reuse `--no-build`.
+
+## Compilation check
+
+A new `git worktree` does not initialize submodules. If the repo has a `.gitmodules`, run `git -C <worktree> submodule update --init --recursive` first. A `CS0234` on a namespace the submodule provides, in a fresh worktree, is this environmental cause, not a source defect.
+
+Build the smallest set of projects that covers the change: the host project that ships it, which compiles its upstream dependency chain, plus the test project that covers it, which catches downstream test compilation. Find them once per session:
+
+```bash
+rg -l 'Sdk="Microsoft.NET.Sdk.Web"' {DOTNET} -g '*.csproj'
+rg -l 'Microsoft.NET.Test.Sdk|<IsTestProject>true' {DOTNET} -g '*.csproj'
+```
+
+Pick the host and the test project that reference the changed project. A change that only a worker or console host ships builds that host instead.
+
+```bash
+dotnet build <HostProject>/<HostProject>.csproj
+dotnet build <TestProject>/<TestProject>.csproj
+```
+
+A small solution can be built whole. A full-solution restore is allowed when packages are stale:
+
+```bash
+dotnet restore <Solution>.sln
+```
+
+## Impacted unit tests
+
+Identify the test class corresponding to each changed service/class, then run against the fresh test build:
+
+```bash
+dotnet test <TestProject>/<TestProject>.csproj --no-build --filter "FullyQualifiedName~<TestClassName>"
+```
+
+Report pass/fail. If no impacted test exists, say so and ask whether one should be created. Do not claim completion from an earlier run that predates later source edits.

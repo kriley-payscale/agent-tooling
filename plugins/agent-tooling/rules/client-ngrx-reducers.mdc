@@ -1,0 +1,75 @@
+---
+description: "Use when adding or changing NgRx reducers or reducer state (`*.reducer.ts`) in an Angular workspace."
+alwaysApply: false
+---
+
+# NgRx Reducer Conventions
+
+## Decision rule — answer this first
+
+Older codebases often contain both `createReducer` + `on()` and `export function reducer()` + `switch/case` reducers.
+
+- **Creating a new file?** `createReducer` + `on()`, always — even when every other file in the same `reducers/` folder uses `switch/case`. Folder style never overrides this, and plans must not instruct `switch/case` for new reducer files.
+- **Adding to an existing file?** Inspect **that specific file** and match its style; nearby files and the surrounding feature area are irrelevant. Do not mix styles within a file. Migrating a file from `switch/case` to `createReducer` + `on()` is a deliberate refactor, not done incidentally when adding one case.
+
+```typescript
+// WRONG — new file in a switch/case reducers/ folder, copying its neighbors
+export function reducer(state = initialState, action: fromActions.Actions): State {
+  switch (action.type) { ... }
+}
+```
+
+## Net-new files — `createReducer` + `on()`
+
+```typescript
+import { createReducer, on } from '@ngrx/store';
+
+import { MyFeatureActions } from '../actions/my-feature.actions';
+import { MyItem } from '../models/my-item.model';
+
+export interface State {
+  items: MyItem[];
+  loading: boolean;
+  loadingError: boolean;
+}
+
+const initialState: State = {
+  items: [],
+  loading: false,
+  loadingError: false
+};
+
+export const reducer = createReducer(
+  initialState,
+  on(MyFeatureActions.loadItems, state => ({ ...state, loading: true, loadingError: false })),
+  on(MyFeatureActions.loadItemsSuccess, (state, { items }) => ({ ...state, items, loading: false })),
+  on(MyFeatureActions.loadItemsFailure, state => ({ ...state, loading: false, loadingError: true }))
+);
+
+export const getItems = (state: State) => state.items;
+```
+
+This example has no async-state wrapper. With one, `items` becomes the wrapper type and each `on()` calls the wrapper's helper.
+
+## Async state
+
+Find whether the codebase has an async-state wrapper: a generic type that holds loaded data beside its loading, error and saving flags, usually with a helper for each transition. Read how a sibling reducer holds a loaded list, or search the models library for a type with a `loading` flag.
+
+- When it has one, every property in a new reducer file that represents async-loaded data uses it, and every transition goes through its helpers. Do not spread and set the wrapper's fields by hand, and never track one property's data, loading and error as separate top-level state properties.
+- An existing file that tracks them separately keeps that shape for the properties it has and for ones added to it.
+- Without a wrapper, follow the sibling reducers' shape.
+
+## Slice-local getters
+
+Where the feature composes selectors in `reducers/index.ts` from reducer getters, every `State` property a selector reads has an exported getter at the bottom of the reducer file. Rule `client-ngrx-selectors` owns that composition and the other placements.
+
+```typescript
+export const getItems = (state: State) => state.items;
+export const getSelectedItem = (state: State) => state.selectedItem;
+```
+
+## Chained or optimistic state, specs and types
+
+- Chained loads, optimistic writes, target or scope identity, request acceptance or rollback, pending records or in-flight counters: read `{CURSOR}/skills/client-ngrx-feature-slice/async-workflows.md`. It owns request acceptance, rollback and the cases those changes must cover.
+- Whether a reducer change needs a reducer spec: `{CURSOR}/skills/unit-test-guidance/client-conventions.md` (spec creation boundary).
+- New state or payload types: rule `client-models`.

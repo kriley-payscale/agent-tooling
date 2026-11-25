@@ -1,0 +1,72 @@
+---
+description: "Use when changing Kendo UI for Angular Chart panning, zoom windows, value-axis scaling, label rotation, custom series visuals, or chart data bound from NgRx state. Not Grid behavior or Kendo form controls."
+alwaysApply: false
+---
+
+# Kendo Chart Conventions
+
+## Chart wider than its container — pan, do not scroll
+
+When a chart has more categories than fit the container, keep `kendo-chart` at container width and use `[pannable]` with the value axis locked, plus category-axis `min`/`max` for the visible window.
+
+Do not wrap `kendo-chart` in an `overflow-x` container and do not stretch it with a computed `min-width`. The legend, value-axis labels, and axis titles live in the same SVG as the plot area; widening the SVG scrolls them out of view along with the categories.
+
+```html
+<!-- correct — container-width chart, categories windowed -->
+<kendo-chart [pannable]="{ lock: 'y' }" [zoomable]="{ mousewheel: { lock: 'y' } }">
+  <kendo-chart-category-axis>
+    <kendo-chart-category-axis-item [min]="windowStart()" [max]="windowEnd()">
+    </kendo-chart-category-axis-item>
+  </kendo-chart-category-axis>
+</kendo-chart>
+```
+
+```html
+<!-- wrong — axis titles and legend scroll away with the plot -->
+<div class="chart-scroll">
+  <kendo-chart [style.min-width.px]="categoryCount() * 80"></kendo-chart>
+</div>
+```
+
+## A pan window must not rescale the plot
+
+When category-axis `min`/`max` act as a visible pan window, the window is the only thing that changes as the user pans. Two bindings have to be pinned or Kendo re-fits them to whatever is currently in view:
+
+- **Value axis.** Bind `min`/`max` from the full series, not the visible window. Left unbound, Kendo auto-fits the value axis to the visible points, so the same bar changes height as it scrolls.
+- **Category labels.** Use a fixed `rotation` (for example `-90`). `rotation: 'auto'` re-measures per window and snaps the label band height, shifting the plot area.
+
+When category-axis `min`/`max` window a non-justified column or bar series:
+
+- Bind `min` to the window start and `max` to start + span, with no half-category inset.
+- Read the `axisRanges` min from `dragEnd` / `zoomEnd` directly as the new start.
+
+Kendo gives category `i` the slot `i` to `i + 1`; a negative `min` floors to `-1`, so `categories.slice(-1, max)` returns nothing and every label disappears.
+
+Apply a zoom span only from `zoomEnd`. Do not recompute the window from `dragEnd` or from a companion overflow scroller — panning must not change how many categories are in view.
+
+```typescript
+// value-axis range comes from every point, not the visible window
+readonly valueAxisMax = computed(() =>
+  Math.max(...this.allPoints().map((point) => point.value), 0)
+);
+```
+
+Take the value axis `majorUnit` and the maximum used when there are no points from the values that chart already uses; do not invent a shared default for either.
+
+## Custom column visuals ignore `colorField`
+
+When a Kendo column or bar series uses a custom Path `visual`, bind series `[color]`. `colorField` colors the default renderer only and does not populate `args.options.color` / `args.series.color`, so the visual and the legend fall through to the theme palette.
+
+Draw that Path with `stroke.width: 0`. The default column renderer also strokes a 1px border even when fill is transparent; `[border]="{ width: 0 }"` does not replace a no-stroke Path. Apply the no-stroke visual to every stacked segment in the range, not only the top series.
+
+## Clone state-owned chart data before binding
+
+Kendo charts may mutate series data during aggregation. When chart data comes from NgRx state or `store.selectSignal()`, return cloned points before binding to `[data]`:
+
+```typescript
+readonly chartData = computed(() =>
+  (this.insights() ?? []).map((point) => ({ ...point }))
+);
+```
+
+Do not pass state-owned arrays or point objects directly to the Chart. The frozen-input regression spec and real-Chart harness are in `{CURSOR}/skills/unit-test-guidance/client-kendo.md`.

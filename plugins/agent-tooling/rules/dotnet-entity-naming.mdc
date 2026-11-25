@@ -1,0 +1,48 @@
+---
+description: "Use when planning, adding or changing EF Core entity classes or registering them in the DbContext, including namespaces, DbSet registration, decimal precision, audit base classes and foreign keys. Use before any EF migration command or tooling."
+alwaysApply: false
+---
+
+# EF Core Entities — Naming and Registration
+
+## Schema ownership — check before any migration command
+
+Find out what owns the database schema before changing an entity:
+
+- **EF Core migrations:** a `Migrations` folder with a `*ModelSnapshot.cs`, and the `Microsoft.EntityFrameworkCore.Design` or `Tools` package. Change the entity here, then add the migration and review its generated SQL through skill `sql-object`, which also covers new tables, columns and indexes.
+- **A schema source outside EF** (a database project or scripts under `{SQL}`): entities map onto that schema, and a new table, column or index goes through skill `sql-object`. Never use EF migrations (`dotnet ef`, `Add-Migration`, `Update-Database`), `Database.Migrate()`, `HasIndex` for a new index, or the EF Design/Tools packages.
+
+## Plural namespace, singular class — mandatory
+
+The folder name (and thus namespace segment) must **never** be identical to the class name it contains.
+
+| Namespace / folder | Class name |
+|---|---|
+| `MyApp.Data.Widgets` | `Widget` |
+| `MyApp.Data.Ordering` | `OrderLine` |
+
+**Use the plural form for the folder when the entity name is singular.** If the entity is already plural or the plural would be awkward, use a domain-category name that holds several entity types. Match the sibling folders.
+
+When `namespace MyApp.Data.Foo` contains `class Foo`, any consuming file whose own namespace has a `Foo` segment (e.g. `MyApp.Services.Foo`) fails with `error CS0118: 'Foo' is a namespace but is used like a type`. A `using` alias (`using Foo = MyApp.Data.Foo.Foo;`) does not reliably fix it; the namespace segment and class name must differ from the start.
+
+## Registering a new entity in the DbContext
+
+Read the DbContext (search for `: DbContext`) and register the entity the way its siblings are: a `DbSet<T>` property, `modelBuilder.Entity<T>()` in `OnModelCreating`, or an `IEntityTypeConfiguration<T>` picked up by `ApplyConfigurationsFromAssembly`. An entity in none of these, and not reachable through another entity's navigation, is not in the model. Code that reads it through `Set<T>()`, as a generic repository does, still compiles, and throws `InvalidOperationException` ("Cannot create a DbSet for 'Widget' because this type is not included in the model for the context") only when the endpoint is hit.
+
+Configure the entity in the style siblings use: attributes such as `[Table]`, `[Key]` and `[Column]`, or fluent configuration. Add fluent configuration only for what attributes cannot express, such as a view binding (`ToView`) or a query filter (`HasQueryFilter`).
+
+## Foreign keys — follow the model's mapping
+
+Map a new foreign key the way the model already does. When the model maps foreign keys as scalar properties without relationship configuration, as is common when the schema is owned outside EF, add a navigation with `[ForeignKey(nameof(WidgetId))]` only when code reads the navigation, and do not add `HasOne<U>().WithMany().HasForeignKey(...)` relationships, including for mutually referencing tables or to order writes.
+
+When a write path nulls a dependent FK and deletes its principal in one unit of work, EF will not order the update before the delete without relationship metadata. Follow `{CURSOR}/skills/dotnet-data-access/writes.md` ("Relational write ordering for FK-sensitive writes"), which also covers `DeleteBehavior` on relationships that already exist. Do not convert existing fluent relationships opportunistically.
+
+## Decimal precision and scale
+
+When planning or changing a decimal entity property, compare its configured EF precision and scale with the database column. Specify matching precision and scale in the existing attribute or fluent mapping style, such as `[Column(TypeName = "decimal(18,4)")]` or `[Precision(18, 4)]`; C# `decimal` alone does not establish agreement, and EF Core maps an unconfigured `decimal` as `decimal(18,2)`. Reuse an existing explicit mapping rather than configuring the property twice. Plans must identify the mapping and a check comparing its configured precision and scale with the column definition; a successful build is insufficient.
+
+## Audit columns — inherit the audit base type
+
+When the codebase stamps audit columns through a base class or interface (rule `dotnet-audit-fields`), a new entity whose table has those columns **must** derive from or implement it. Do not redeclare the audit properties: the stamping code matches only the base type, so a type that redeclares them is never stamped. Do not add differently named audit properties on the entity; API models may use other names.
+
+When the codebase also has a tenant-scoped base that supplies the tenant key and its navigation, prefer it for a new entity whose table has that key, and do not redeclare the key on the subclass. Tables without the key stay on the plain audit base. Existing entities that declare their own tenant key stay as they are; do not convert them opportunistically. EF's default cascade on a required relationship can differ from the database's `NO ACTION`; leave it unconfigured unless a write path deletes the principal through EF.

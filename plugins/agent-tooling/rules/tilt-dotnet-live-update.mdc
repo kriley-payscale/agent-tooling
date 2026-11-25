@@ -1,0 +1,47 @@
+---
+description: "Use when changing a .NET service's Tilt live update: the dotnet publish local_resource, the runtime-only Dockerfile, file sync, the publish watch or ignore list, or one image serving several services; when the publish resource republishes in a loop or every save rebuilds the image; or when bringing up the full local stack through Tilt. Readiness after an update, stale assemblies and crash loops use tilt-dotnet-readiness."
+alwaysApply: false
+---
+
+# Tilt Live Update — .NET
+
+Goal: edit .NET source → `dotnet publish` on the host → Tilt syncs the published files into the running pod → the process restarts in place. No Docker image rebuild; no pod recreation.
+
+## Guidance map
+
+| When | Read |
+|---|---|
+| Verifying readiness after an update, a 502 after a publish, a crash loop, a stuck live update or a stale published assembly | rule `tilt-dotnet-readiness` |
+| Writing a `sync()` path, a watch glob or a build context's `only=` list | rule `tilt-conventions` |
+
+## How It Works
+
+Find the pieces with `tilt alpha tiltfile-result`, or `rg -n 'dotnet publish|docker_build_with_restart|sync\(' -g 'Tiltfile*' "{TILT}" "{DOTNET}"`.
+
+- **A publish `local_resource`** watches source and runs `dotnet publish` for each service into a host folder, one subfolder per service.
+- **A runtime-only Dockerfile** copies the published output; it runs no `dotnet build`. Its baked `ENTRYPOINT` is a fallback only, because Tilt overrides the container command.
+- **`docker_build_with_restart`** (the `restart_process` extension) uses `entrypoint=['dotnet']`, `only=` the publish folder plus any certificates the image needs, and one `sync('<publish>/<service>/', '/app/<service>/')` per service.
+- **Each service's k8s resource** sets `resource_deps=['<publish resource>']` so its pods wait for the publish.
+
+## Critical: The Publish Resource Stays in the Tiltfile Beside the Projects
+
+Declare the publish `local_resource` in the Tiltfile in the folder that holds the projects it watches, normally `{DOTNET}`. Moving it into an include in a subfolder, or into a `{TILT}` stack Tiltfile in a sibling folder, causes an infinite republish loop. Tilt resolves `deps` and `ignore` globs relative to the Tiltfile that declares them:
+
+- From the projects' folder, `deps=['.']` reports changed files as `MyApi/bin/...`; `**/bin/**` matches, so publish output is ignored.
+- From a subfolder or a sibling folder, `deps` start with `../` and changed files appear as `../MyApi/bin/...`; `**/bin/**` does not match across the leading `../`, so the publish output (`bin/`, `obj/`, `web.config`) triggers the next publish.
+
+Symptom: the publish resource reruns every few seconds and logs "N Files Changed: [.../bin/..., .../obj/...PublishOutputs.txt, .../web.config]".
+
+## Per-Service DLL Selection
+
+One image can serve several services. Set `entrypoint=['dotnet']` with no DLL baked in. Tilt replaces the pod `command` with the restart wrapper but preserves the Helm `args`, so each chart's deployment `args: ["<Service>.dll"]` is appended and runs `dotnet <Service>.dll`.
+
+That is why production deployment templates need no Tilt-specific config: no environment variable naming the DLL, no restart flag, no conditional command override.
+
+## `.csproj`/`.sln` Files in the Ignore List
+
+Do not add `**/*.csproj` or `*.sln` to the publish ignore list. They are not build outputs, so they can't cause a self-trigger loop, and keeping them watched means adding or changing a NuGet or project reference triggers a fresh `dotnet publish` that picks up the new dependencies.
+
+## Full Dev Environment
+
+A service repo's own Tiltfile may bring up only that repo's services. The full local stack (database, client and the rest) comes from the stack Tiltfile in `{TILT}`: run `tilt up` there to start it and `tilt down` to stop it. Options that the Tiltfile reads with `config.parse()` live in `tilt_config.json` beside it.

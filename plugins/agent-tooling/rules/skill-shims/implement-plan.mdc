@@ -1,0 +1,6 @@
+---
+description: "Use when starting or resuming Build of an approved plan, dispatching and verifying workers, running final verification, or resolving blocked reports. Not discovery or plan authoring."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/implement-plan/SKILL.md` for the full procedure.

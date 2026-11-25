@@ -1,0 +1,6 @@
+---
+description: "Use when querying the local development SQL Server with sqlcmd, inspecting table data, verifying a schema change, checking active requests or blocking, diagnosing SQL-backed API 504s or browser spinners, or gathering CPU, logical-read, index-coverage or missing-index evidence for a slow query."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/sql-query/SKILL.md` for the full procedure.

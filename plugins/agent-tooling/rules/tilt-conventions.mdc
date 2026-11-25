@@ -1,0 +1,41 @@
+---
+description: "Use when creating, editing or reviewing a Tiltfile or its includes, Helm charts or values that Tilt deploys, a Tilt-only Dockerfile or local override values, including Tilt resource names, a live_update sync or a docker_build context."
+alwaysApply: false
+---
+
+# Tilt Conventions
+
+## Find names and the resolved config
+
+Discover names; don't assume them. `tilt get uiresources` lists the running stack's resources, and `kubectl get pods -A -l app.kubernetes.io/managed-by=tilt` lists the pods Tilt deployed, with their namespaces. `tilt alpha tiltfile-result` executes the Tiltfile without starting anything and prints the resolved resources, images, `live_update` steps and k8s objects as JSON. Run it after a Tiltfile edit; exit code 5 means the Tiltfile failed to evaluate.
+
+## Resource names
+
+A new resource follows the naming pattern of the stack's existing resources, such as a shared prefix, rather than a bare tool name like `ng-build`.
+
+## No local config in production manifests
+
+Production Helm templates stay clean: no Tilt restart conditionals, no environment variable that picks the entry assembly, no restart-wrapper commands, no Tilt-only environment variables.
+
+Put local and Tilt-only concerns in the Tilt layer: the Tiltfile and its includes, a Tilt-only Dockerfile, and local values files that only the Tiltfile passes to the chart. Prefer reverting a production template to its committed form and driving local behavior entirely from Tilt.
+
+## Paths resolve against the declaring Tiltfile
+
+`deps` and `ignore` globs and `sync()` source paths resolve relative to the Tiltfile that declares them, not the Tiltfile that includes that one; `only=` entries are relative to the build context. An include in a subfolder must write `../<dir>` to match a `../` build context. A path written as if from the repo root points at a folder that doesn't exist there, and a `sync()` from it silently falls back to a full image rebuild. A glob such as `**/bin/**` does not match changed paths that start with `../`.
+
+## `only=` not `ignore=`
+
+Give `docker_build` and `docker_build_with_restart` an `only=` allowlist (the build output and the few files the image needs) rather than an `ignore=` denylist over the source tree. An editor's atomic-save temp file (`Program.cs.tmp.<pid>.<hash>`) matches no denylist glob, so Tilt counts it as a file not matching any sync and forces a full rebuild (`UpdateStopped: Found file(s) not matching any sync`).
+
+## Sync host build output instead of rebuilding the image
+
+When the app builds on the host, such as an Angular `dist/` folder or `dotnet publish` output, build a runtime-only image from that output and sync it on change. From an include one folder below the repo root:
+
+```python
+docker_build('<image>', '..', dockerfile='../Dockerfile', only=['dist'],
+    live_update=[sync('../dist', '<path the container serves>')])
+```
+
+The image watches only the output. The host build (a watch build, or a `local_resource` that watches source) writes it, and Tilt syncs it into the running container in seconds. The Dockerfile copies that output, so it must exist before `tilt up`.
+
+Editing the Tiltfile or the Tilt Dockerfile forces one full image rebuild to pick up the config; later source edits take the fast path. Tilt may not pick up a changed local values file; run a fresh `tilt up`, not `tilt trigger`.

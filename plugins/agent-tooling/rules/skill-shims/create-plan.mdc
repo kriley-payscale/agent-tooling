@@ -1,0 +1,6 @@
+---
+description: "Use when turning discovery context into a plan (the plan file and task artifacts), or revising a plan's artifacts while no Build is running. Consequential gaps route to discovery; not Build or discovery-only requests."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/create-plan/SKILL.md` for the full step-by-step procedure.

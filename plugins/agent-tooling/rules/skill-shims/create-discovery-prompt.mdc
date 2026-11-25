@@ -1,0 +1,6 @@
+---
+description: "Use when turning a feature idea, ticket or vertical-slice brief into a ready-to-paste prompt for a later discovery run. Prompt preparation only; does not start discovery, planning or Build."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/create-discovery-prompt/SKILL.md` for the full procedure.

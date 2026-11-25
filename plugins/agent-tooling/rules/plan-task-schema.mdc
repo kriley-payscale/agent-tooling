@@ -1,0 +1,128 @@
+---
+description: "Use when writing, revising or validating a plan's task artifacts, or starting or resuming Build of an approved plan: the eleven-field task schema, the final verification task and plan fidelity."
+alwaysApply: false
+---
+
+# Plan task schema
+
+This rule owns the executable task schema, the final verification task and plan
+fidelity. Stage boundaries, delegation, the Domain map, guidance maps, the planning
+artifact layout and user-flow handoffs are in `{CURSOR}/rules/plan-workflow.mdc`; a
+task's Agent is one selection from that Domain map.
+
+## Task schema
+
+New plans use this eleven-field Workstream schema, with no execution-model marker or
+version label. Schema shape grants no Git-write authority: task commits need explicit
+approval in Decisions. Never reinterpret or retrofit an approved plan during Build;
+a contract migration needs an explicitly reviewed revision.
+
+Every implementation and final verification todo gets a task artifact and a plan
+section. Todo ids are lowercase kebab-case. Each todo's content names
+`{CURSOR}/skills/implement-plan/SKILL.md`, its todo id and its task artifact.
+The plan section points to the artifact:
+
+```markdown
+### <todo-id>
+- Task artifact: [Task 01 — <purpose>](tasks/01-task-<plan-slug>.md)
+```
+
+The artifact has a stable descriptive H1 in the repository's commit subject
+convention, read from its recent history; its text without `# ` is the verified
+commit subject. The artifact path and todo id are its durable identity, not the
+ordinal. The task section:
+
+```markdown
+## <todo-id>
+- Workstream: <named organizational group>
+- Agent: <one selection from the Domain map>
+- Discovery: <relative links to relevant discovery files and headings>
+- Read first: <canonical guidance, selected references, and required sources>
+- Owns: <exact implementation files, or none for final verification>
+- Depends on: <todo ids or none>
+- Completion depends on: <todo ids or none>
+- Contracts: <approved definitions or exact references, or none>
+- Resources: <repositories this task commits to, and shared runtimes or fixtures its checks use, or none>
+- Done when: <observable outcome>
+- Verification (Lead runs): <exact commands and required results>
+```
+
+Add task detail only when it helps execution: consumed and produced contracts,
+existing patterns, required wiring, fixture setup and preservation. The plan's Decisions
+override task detail; a contradiction blocks readiness.
+
+**Workstream** is a non-empty descriptive display group, not an ordinal or a
+prerequisite, and need not equal a domain. Workstreams and ordinals never serialize
+work. Keep each application task within one domain and settle producer/consumer
+contracts before splitting; several tasks may share a domain Agent. Each layer's part
+of a cross-layer change, such as a permission's seed data, backend authorization and
+client guard, goes to that layer's task. Invalid grouping values, mixed grouping
+fields and Agent/ownership mismatches are plan defects.
+
+**Depends on** names Lead-verified start prerequisites; **Completion depends on**
+names tasks that must be verified before this task's verification or Done, without
+blocking its implementation. `none` is valid for either. The union of both edge types
+has no unknown ids, self-edges or cycles. A physical generated artifact or shared
+symbol that must exist first is a start prerequisite; a complete approved API
+contract alone is not. Put mutual integration checks in final verification instead
+of creating completion cycles. A task is completed only after Lead verification and
+its commit, or a verified no-change/non-Git disposition; a worker's return is not Done.
+
+**Contracts** identifies complete approved definitions (inline or by exact artifact
+heading): producer and consumer tasks, names, types/shapes/nullability, behavior,
+authorization/errors and evidence as applicable. There is no second mutable contract
+store. An unresolved consequential contract blocks readiness; consumers use the fixed
+definition, never a sibling's moving source. A contract change during Build follows
+the reviewed-revision boundary.
+
+**Owns** is the task's edit boundary. Every implementation file, including tests,
+fixtures and shared registration/wiring (the DbContext file, the DI registration
+file, a database project file, barrel `index.ts`, NgRx module/store wiring), has
+exactly one owner. No two tasks own the same path or a parent/child of it, compared
+after resolving tokens, separators and symlinks. Same-repository tasks run one at a
+time (implementation skill, Admission); there is no other registration-file lock.
+Owns may name a new EF Core migration as `Migrations/<timestamp>_<Name>.cs` and its
+`.Designer.cs`, in the project's migrations folder, with the context's
+`*ModelSnapshot.cs` by its actual name. The worker generates them with one
+`dotnet ef migrations add <Name>`; before checking Owns or staging, the Lead
+replaces `<timestamp>` with the generated value.
+
+**Resources** names each repository the task commits to (non-Git outputs say so and
+are never redirected into another repository) and any shared runtime or fixture its
+checks use: database, API, Angular dev server, Tilt, publish/deploy.
+
+The implementation skill owns admission, check ordering around writers and shared
+runtimes, task commits and the ledger at
+`{ARTIFACTS}/planning/<plan-slug>/execution-state.md`. Only the Lead writes the
+ledger; it is excluded from frozen inputs and every Owns.
+
+## Final verification
+
+The last numbered task and last execution todo is end-to-end verification: Agent:
+orchestrator, Owns: none, Depends on every preceding execution task, displayed as the
+final integration gate. It links each discovery acceptance requirement and required
+UF ID to exact checks of the integrated result, with runtime prerequisites and
+required evidence; it is not a request for unrelated broad testing. The
+implementation skill owns its execution, failure routing and completion.
+
+A plan that adds or changes UI has a final-task section headed
+`Browser verification: verification-agent`. Link each UF ID with a UI step and
+declare flow grouping, ordering/independence, slots and evidence
+requirements; do not duplicate flow definitions or add schema fields. Default to one
+verifier; plan two only for independent journeys with separate fixtures and
+demonstrated session/account isolation. Unknown independence or shared mutable state
+serializes, and dependent cross-page journeys stay together. Non-UI plans need no
+browser section.
+
+## Plan fidelity
+
+Build executes only plans in the eleven-field Workstream schema; any other format
+stops with a request to re-plan. Unknown declarations, mixed fields and incomplete
+schemas block execution.
+
+Execute the approved artifact set without expanding Owns, changing contracts or
+behavior, skipping tasks/dependencies, weakening verification, or silently rewriting
+instructions. This overrides the scope gate's minor-substitution policy. The Lead
+follows `implement-plan` for scheduling, correction limits, recovery and global
+stops; workers follow `implementation-contract.md` for their own recovery and report.
+Neither role may use recovery to redesign the plan.

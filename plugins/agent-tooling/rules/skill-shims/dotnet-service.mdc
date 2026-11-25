@@ -1,0 +1,6 @@
+---
+description: "Use when creating a new .NET service with its interface, implementation, DI registration and tests. Changes to existing services use dotnet-service-conventions."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/dotnet-service/SKILL.md` for the full step-by-step procedure.

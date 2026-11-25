@@ -1,0 +1,7 @@
+{
+  "name": "agent-tooling",
+  "displayName": "Agent Tooling",
+  "version": "0.1.0",
+  "description": "Rules, skills and agents for Angular, .NET and SQL Server codebases",
+  "hooks": "./hooks.json"
+}

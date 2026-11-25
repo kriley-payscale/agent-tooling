@@ -1,0 +1,6 @@
+---
+description: "Use when adding or changing Angular form fields, validators, hydration, Kendo form value binding, custom ControlValueAccessors, DTO submission or submit and reset behavior, including modal forms and their dismissal. Not static display text or Grid and Chart behavior."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/client-angular-forms/SKILL.md` as the compact router. Select only its references applicable to the changed behavior; do not load every topic.

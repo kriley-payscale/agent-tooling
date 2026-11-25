@@ -1,0 +1,47 @@
+---
+description: "Use when writing or reviewing C# async code, including Task.WhenAll, .Result or .Wait(), async void, Task.Run, ConfigureAwait, or parallel work that touches a scoped DbContext."
+alwaysApply: false
+---
+
+# C# Async Hygiene
+
+## Banned in production code
+
+- **Blocking on a task:** `.Result`, `.Wait()`, `.GetAwaiter().GetResult()`, including `Task.Run(() => SomeAsync()).Wait()`. Await it and make every caller up the chain `async`; do not stop the propagation with `.Result` to avoid changing a signature. Test classes whose name ends in `Tests`, `Fixtures` or `TestHelper` may block only when the test framework offers no async alternative.
+- **`async void`:** return `Task`. The one exception is an event handler whose delegate signature requires `void`; suppress the warning inline with a comment saying why.
+- **`Task.Run()` inside a controller action or service method:** it does not make I/O async. Call the async data-access method. When the only available method is synchronous and cannot be changed, call it synchronously with no `Task.Run` wrapper and document why no async version exists.
+
+## Banned — overlapping EF operations on the same scoped DbContext
+
+`AddDbContext` registers a context as scoped, one instance per request, and no DbContext is thread-safe. Every repository and service in the same request that takes the context shares that instance.
+
+Do not start a second EF operation before the previous one completes:
+
+```csharp
+// banned: WhenAll over repositories that share the scoped context
+await Task.WhenAll(itemsTask, totalsTask, countsTask);
+
+// banned: both started before either is awaited
+var a = _widgetRepository.GetItemsAsync(...);
+var b = _widgetRepository.GetTotalsAsync(...);
+await a;
+await b;
+
+// correct
+var items = await _widgetRepository.GetItemsAsync(...);
+var totals = await _widgetRepository.GetTotalsAsync(...);
+```
+
+`Task.WhenAll` is still fine for HTTP calls, email and other I/O that does not touch the scoped context. The ban is overlapping work that hits the same scoped context, including two different repositories in one service method.
+
+When work must run in parallel, as in a batch job, give each branch its own context: the codebase's per-call repository if it has one (skill `dotnet-data-access`, Choosing a repository type), an `IDbContextFactory<TContext>` registered with `AddDbContextFactory`, or a new DI scope per branch.
+
+Symptom: `InvalidOperationException: A second operation was started on this context instance before a previous operation completed.`
+
+## ConfigureAwait
+
+ASP.NET Core and the .NET generic host have no `SynchronizationContext`, so in code only they host, `ConfigureAwait(false)` changes nothing. Follow the codebase's convention there, which is usually to omit it.
+
+- A class-library `.csproj` is not by itself a reason to add it. Check which processes host the assembly.
+- In an assembly published as a NuGet package, or hosted by a UI or classic ASP.NET app, code that doesn't need the caller's context uses it on every await. Code that touches UI controls or `HttpContext.Current` after an await must not.
+- When the convention is to omit it and a file you edit still has leftovers, strip them from the awaits you touch. Do not run a solution-wide cleanup unless asked.

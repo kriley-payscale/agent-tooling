@@ -1,0 +1,6 @@
+---
+description: "Use when writing or reviewing .NET repository reads or writes, including choosing a generic, read-only or per-call repository (primary versus read replica, parallel reads), generic repository method selection, SaveChanges ownership, specialized-repository versus service writes, WithoutSave, transactions and write ordering, domain-repository scaffolding, private IQueryable extracts, left joins, duplicated joins or query-assembly extracts."
+alwaysApply: false
+---
+
+Read `{CURSOR}/skills/dotnet-data-access/SKILL.md` for the full step-by-step procedure.
